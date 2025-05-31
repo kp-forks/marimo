@@ -6,8 +6,10 @@ from unittest.mock import patch
 import pytest
 
 from marimo._data.preview_column import (
+    get_column_preview_dataset,
     get_column_preview_for_dataframe,
     get_column_preview_for_duckdb,
+    get_table_manager,
 )
 from marimo._dependencies.dependencies import DependencyManager
 from marimo._plugins.ui._impl.charts.altair_transformer import (
@@ -48,6 +50,37 @@ def cleanup() -> Generator[None, None, None]:
     not HAS_DF_DEPS, reason="optional dependencies not installed"
 )
 @pytest.mark.skipif(is_windows(), reason="Windows encodes base64 differently")
+def test_get_column_preview_for_dataframe() -> None:
+    import pandas as pd
+
+    register_transformers()
+
+    df = pd.DataFrame({"A": [1, 2, 3], "B": ["a", "a", "a"]})
+
+    for column_name in ["A", "B"]:
+        result = get_column_preview_for_dataframe(
+            df,
+            request=PreviewDatasetColumnRequest(
+                source="source",
+                table_name="table",
+                column_name=column_name,
+                source_type="local",
+            ),
+        )
+
+        assert result is not None
+        assert result.table_name == "table"
+        assert result.column_name == column_name
+        assert result.chart_code is not None
+        assert result.chart_spec is not None
+        assert result.stats is not None
+        assert result.error is None
+
+
+@pytest.mark.skipif(
+    not HAS_DF_DEPS, reason="optional dependencies not installed"
+)
+@pytest.mark.skipif(is_windows(), reason="Windows encodes base64 differently")
 @pytest.mark.parametrize(
     ("column_name", "snapshot_prefix"),
     [
@@ -59,9 +92,7 @@ def cleanup() -> Generator[None, None, None]:
         ("category_col", "column_preview_categorical"),
     ],
 )
-def test_get_column_preview_for_dataframe(
-    column_name: str, snapshot_prefix: str
-) -> None:
+def test_get_column_preview(column_name: str, snapshot_prefix: str) -> None:
     import pandas as pd
 
     register_transformers()
@@ -88,19 +119,15 @@ def test_get_column_preview_for_dataframe(
         mock_dm.vegafusion.has.return_value = False
         mock_dm.vl_convert_python.has.return_value = True
 
-        result = get_column_preview_for_dataframe(
-            df,
-            request=PreviewDatasetColumnRequest(
-                source="source",
-                table_name="table",
-                column_name=column_name,
-                source_type="local",
-            ),
+        result = get_column_preview_dataset(
+            table=get_table_manager(df),
+            table_name="table",
+            column_name=column_name,
         )
         assert result is not None
         assert result.chart_code is not None
         assert result.chart_spec is not None
-        assert result.summary is not None
+        assert result.stats is not None
         assert result.error is None
 
         snapshot(f"{snapshot_prefix}_chart_code.txt", result.chart_code)
@@ -111,20 +138,16 @@ def test_get_column_preview_for_dataframe(
         # Verify vegafusion was checked
         mock_dm.vegafusion.has.assert_called_once()
 
-    result_with_vegafusion = get_column_preview_for_dataframe(
-        df,
-        request=PreviewDatasetColumnRequest(
-            source="source",
-            table_name="table",
-            column_name=column_name,
-            source_type="local",
-        ),
+    result_with_vegafusion = get_column_preview_dataset(
+        table=get_table_manager(df),
+        table_name="table",
+        column_name=column_name,
     )
 
     assert result_with_vegafusion is not None
     assert result_with_vegafusion.chart_code is not None
     assert result_with_vegafusion.chart_spec is not None
-    assert result_with_vegafusion.summary is not None
+    assert result_with_vegafusion.stats is not None
     assert result_with_vegafusion.error is None
 
     # Skip date_col because of timezone
@@ -159,13 +182,13 @@ def test_get_column_preview_for_duckdb() -> None:
         column_name="outcome",
     )
     assert result is not None
-    assert result.summary is not None
+    assert result.stats is not None
     assert result.error is None
 
     # Check if summary contains expected statistics for the alternating pattern
-    assert result.summary.total == 100
-    assert result.summary.unique == 2
-    assert result.summary.mean == 0.5  # Exactly 0.5 due to alternating pattern
+    assert result.stats.total == 100
+    assert result.stats.unique == 2
+    assert result.stats.mean == 0.5  # Exactly 0.5 due to alternating pattern
     assert result.chart_spec is not None
 
     # Test preview for the 'id' column (for comparison)
@@ -174,7 +197,7 @@ def test_get_column_preview_for_duckdb() -> None:
         column_name="id",
     )
     assert result_id is not None
-    assert result_id.summary is not None
+    assert result_id.stats is not None
     assert result_id.error is None
     assert result_id.chart_spec is not None
 
@@ -207,13 +230,13 @@ def test_get_column_preview_for_duckdb_categorical() -> None:
         column_name="category",
     )
     assert result_categorical is not None
-    assert result_categorical.summary is not None
+    assert result_categorical.stats is not None
     assert result_categorical.error is None
 
     # Check if summary contains expected statistics for the categorical pattern
-    assert result_categorical.summary.total == 100
-    assert result_categorical.summary.unique == 4
-    assert result_categorical.summary.nulls == 0
+    assert result_categorical.stats.total == 100
+    assert result_categorical.stats.unique == 4
+    assert result_categorical.stats.nulls == 0
     assert result_categorical.chart_spec is not None
 
     snapshot(
@@ -229,11 +252,11 @@ def test_get_column_preview_for_duckdb_categorical() -> None:
         get_column_preview_for_duckdb(
             fully_qualified_table_name="tbl",
             column_name="category",
-        ).summary
+        ).stats
         == get_column_preview_for_duckdb(
             fully_qualified_table_name="memory.main.tbl",
             column_name="category",
-        ).summary
+        ).stats
     )
 
 
@@ -258,15 +281,15 @@ def test_get_column_preview_for_duckdb_date() -> None:
         column_name="date_col",
     )
     assert result_date is not None
-    assert result_date.summary is not None
+    assert result_date.stats is not None
     assert result_date.error is None
 
     # Check if summary contains expected statistics for the date pattern
-    assert result_date.summary.total == 100
-    assert result_date.summary.unique == 100
-    assert result_date.summary.nulls == 0
-    assert result_date.summary.min == datetime.datetime(2023, 1, 1, 0, 0)
-    assert result_date.summary.max == datetime.datetime(2023, 4, 10, 0, 0)
+    assert result_date.stats.total == 100
+    assert result_date.stats.unique == 100
+    assert result_date.stats.nulls == 0
+    assert result_date.stats.min == datetime.datetime(2023, 1, 1, 0, 0)
+    assert result_date.stats.max == datetime.datetime(2023, 4, 10, 0, 0)
     assert result_date.chart_spec is not None
 
     # No chart_spec snapshot because of date timezone
@@ -279,11 +302,11 @@ def test_get_column_preview_for_duckdb_date() -> None:
         get_column_preview_for_duckdb(
             fully_qualified_table_name="date_tbl",
             column_name="date_col",
-        ).summary
+        ).stats
         == get_column_preview_for_duckdb(
             fully_qualified_table_name="memory.main.date_tbl",
             column_name="date_col",
-        ).summary
+        ).stats
     )
 
 
@@ -311,15 +334,15 @@ def test_get_column_preview_for_duckdb_datetime() -> None:
         column_name="datetime_col",
     )
     assert result_datetime is not None
-    assert result_datetime.summary is not None
+    assert result_datetime.stats is not None
     assert result_datetime.error is None
 
     # Check if summary contains expected statistics for the datetime pattern
-    assert result_datetime.summary.total == 100
-    assert result_datetime.summary.unique == 100
-    assert result_datetime.summary.nulls == 0
-    assert result_datetime.summary.min == datetime.datetime(2023, 1, 1, 0, 0)
-    assert result_datetime.summary.max == datetime.datetime(2023, 4, 10, 3, 39)
+    assert result_datetime.stats.total == 100
+    assert result_datetime.stats.unique == 100
+    assert result_datetime.stats.nulls == 0
+    assert result_datetime.stats.min == datetime.datetime(2023, 1, 1, 0, 0)
+    assert result_datetime.stats.max == datetime.datetime(2023, 4, 10, 3, 39)
     assert result_datetime.chart_spec is not None
 
     # Not implemented yet
@@ -332,11 +355,11 @@ def test_get_column_preview_for_duckdb_datetime() -> None:
         get_column_preview_for_duckdb(
             fully_qualified_table_name="datetime_tbl",
             column_name="datetime_col",
-        ).summary
+        ).stats
         == get_column_preview_for_duckdb(
             fully_qualified_table_name="memory.main.datetime_tbl",
             column_name="datetime_col",
-        ).summary
+        ).stats
     )
 
 
@@ -363,15 +386,15 @@ def test_get_column_preview_for_duckdb_time() -> None:
         column_name="time_col",
     )
     assert result_time is not None
-    assert result_time.summary is not None
+    assert result_time.stats is not None
     assert result_time.error is None
 
     # Check if summary contains expected statistics for the time pattern
-    assert result_time.summary.total == 100
-    assert result_time.summary.unique == 100
-    assert result_time.summary.nulls == 0
-    assert result_time.summary.min == datetime.time(0, 0)
-    assert result_time.summary.max == datetime.time(23, 47)
+    assert result_time.stats.total == 100
+    assert result_time.stats.unique == 100
+    assert result_time.stats.nulls == 0
+    assert result_time.stats.min == datetime.time(0, 0)
+    assert result_time.stats.max == datetime.time(23, 47)
 
     # Time is not handled yet
     assert result_time.chart_spec is None
@@ -399,15 +422,15 @@ def test_get_column_preview_for_duckdb_bool() -> None:
         column_name="bool_col",
     )
     assert result_bool is not None
-    assert result_bool.summary is not None
+    assert result_bool.stats is not None
     assert result_bool.error is None
 
     # Check if summary contains expected statistics for the boolean pattern
-    assert result_bool.summary.total == 100
-    assert result_bool.summary.unique == 2
-    assert result_bool.summary.nulls == 0
-    assert result_bool.summary.true == 50
-    assert result_bool.summary.false == 50
+    assert result_bool.stats.total == 100
+    assert result_bool.stats.unique == 2
+    assert result_bool.stats.nulls == 0
+    assert result_bool.stats.true == 50
+    assert result_bool.stats.false == 50
     assert result_bool.chart_spec is not None
 
     snapshot(
@@ -443,7 +466,7 @@ def test_get_column_preview_for_duckdb_over_limit() -> None:
     )
 
     assert result is not None
-    assert result.summary is not None
+    assert result.stats is not None
     assert result.error is None
     assert result.chart_max_rows_errors is True
     assert result.chart_spec is None

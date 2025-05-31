@@ -62,7 +62,7 @@ export function renderTableHeader<TData>(
 export function renderTableBody<TData>(
   table: Table<TData>,
   columns: Array<ColumnDef<TData>>,
-  isSelectionPanelOpen?: boolean,
+  isRowSelectable?: boolean,
   getRowIndex?: (row: TData, idx: number) => number,
 ): JSX.Element {
   const renderCells = (row: Row<TData>, cells: Array<Cell<TData, unknown>>) => {
@@ -106,10 +106,7 @@ export function renderTableBody<TData>(
             key={row.id}
             data-state={row.getIsSelected() && "selected"}
             // These classes ensure that empty rows (nulls) still render
-            className={cn(
-              "border-t h-6",
-              isSelectionPanelOpen && "cursor-pointer",
-            )}
+            className={cn("border-t h-6", isRowSelectable && "cursor-pointer")}
             onClick={() => handleRowClick(row)}
           >
             {renderCells(row, row.getLeftVisibleCells())}
@@ -177,4 +174,24 @@ function columnSizingHandler<TData>(
     ...prevSizes,
     [column.id]: thead.getBoundingClientRect().width,
   }));
+}
+
+/**
+ * Render an unknown value as a string. Converts objects to JSON strings.
+ * @param opts.value - The value to render.
+ * @param opts.nullAsEmptyString - If true, null values will be "". Else, stringify.
+ */
+export function renderUnknownValue(opts: {
+  value: unknown;
+  nullAsEmptyString?: boolean;
+}): string {
+  const { value, nullAsEmptyString = false } = opts;
+
+  if (typeof value === "object" && value !== null) {
+    return JSON.stringify(value);
+  }
+  if (value === null && nullAsEmptyString) {
+    return "";
+  }
+  return String(value);
 }

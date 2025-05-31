@@ -31,7 +31,6 @@ import type { CalculateTopKRows } from "@/plugins/impl/DataTablePlugin";
 
 // Artificial limit to display long strings
 const MAX_STRING_LENGTH = 50;
-export const MAX_COLUMNS = 50;
 
 function inferDataType(value: unknown): [type: DataType, displayType: string] {
   if (typeof value === "string") {
@@ -157,19 +156,17 @@ export function generateColumns<T>({
       },
 
       header: ({ column }) => {
-        const summary = chartSpecModel?.getColumnSummary(key);
+        const stats = chartSpecModel?.getColumnStats(key);
         const dtype = column.columnDef.meta?.dtype;
         const dtypeHeader =
           showDataTypes && dtype ? (
             <div className="flex flex-row gap-1">
               <span className="text-xs text-muted-foreground">{dtype}</span>
-              {summary &&
-                typeof summary.nulls === "number" &&
-                summary.nulls > 0 && (
-                  <span className="text-xs text-muted-foreground">
-                    (nulls: {summary.nulls})
-                  </span>
-                )}
+              {stats && typeof stats.nulls === "number" && stats.nulls > 0 && (
+                <span className="text-xs text-muted-foreground">
+                  (nulls: {stats.nulls})
+                </span>
+              )}
             </div>
           ) : null;
 

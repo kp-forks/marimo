@@ -45,15 +45,15 @@ import {
 } from "lucide-react";
 import { ExternalLink } from "../ui/links";
 import { cn } from "@/utils/cn";
-import { KNOWN_AI_MODELS } from "./constants";
+import { KNOWN_AI_MODELS, AWS_REGIONS } from "./constants";
 import { Textarea } from "../ui/textarea";
 import { get } from "lodash-es";
 import { Tooltip } from "../ui/tooltip";
-import { getMarimoVersion } from "@/core/dom/marimo-tag";
 import { Badge } from "../ui/badge";
 import { capabilitiesAtom } from "@/core/config/capabilities";
 import { Banner } from "@/plugins/impl/common/error-banner";
 import { OptionalFeatures } from "./optional-features";
+import { marimoVersionAtom } from "@/core/meta/state";
 
 const formItemClasses = "flex flex-row items-center space-x-1 space-y-0";
 const categories = [
@@ -115,6 +115,7 @@ export const UserConfigForm: React.FC = () => {
     activeUserConfigCategoryAtom,
   );
   const capabilities = useAtomValue(capabilitiesAtom);
+  const marimoVersion = useAtomValue(marimoVersionAtom);
 
   // Create form
   const form = useForm<UserConfig>({
@@ -1187,6 +1188,88 @@ export const UserConfigForm: React.FC = () => {
                   </div>
                 )}
               />
+
+              <p className="text-sm font-semibold mt-3">
+                AWS Bedrock Configuration
+              </p>
+              <p className="text-sm text-muted-secondary mb-2">
+                To use AWS Bedrock, you need to configure AWS credentials and
+                region. See the{" "}
+                <ExternalLink href="https://docs.marimo.io/guides/editor_features/ai_completion.html#aws-bedrock">
+                  documentation
+                </ExternalLink>{" "}
+                for more details.
+              </p>
+              <FormField
+                control={form.control}
+                disabled={isWasmRuntime}
+                name="ai.bedrock.region_name"
+                render={({ field }) => (
+                  <div className="flex flex-col space-y-1">
+                    <FormItem className={formItemClasses}>
+                      <FormLabel>AWS Region</FormLabel>
+                      <FormControl>
+                        <NativeSelect
+                          data-testid="bedrock-region-select"
+                          onChange={(e) => field.onChange(e.target.value)}
+                          value={
+                            typeof field.value === "string"
+                              ? field.value
+                              : "us-east-1"
+                          }
+                          disabled={field.disabled}
+                          className="inline-flex mr-2"
+                        >
+                          {AWS_REGIONS.map((option) => (
+                            <option value={option} key={option}>
+                              {option}
+                            </option>
+                          ))}
+                        </NativeSelect>
+                      </FormControl>
+                      <FormMessage />
+                      <IsOverridden
+                        userConfig={config}
+                        name="ai.bedrock.region_name"
+                      />
+                    </FormItem>
+                    <FormDescription>
+                      The AWS region where Bedrock service is available.
+                    </FormDescription>
+                  </div>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                disabled={isWasmRuntime}
+                name="ai.bedrock.profile_name"
+                render={({ field }) => (
+                  <div className="flex flex-col space-y-1">
+                    <FormItem className={formItemClasses}>
+                      <FormLabel>AWS Profile Name (Optional)</FormLabel>
+                      <FormControl>
+                        <Input
+                          data-testid="bedrock-profile-input"
+                          className="m-0 inline-flex"
+                          placeholder="default"
+                          {...field}
+                          value={field.value || ""}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                      <IsOverridden
+                        userConfig={config}
+                        name="ai.bedrock.profile_name"
+                      />
+                    </FormItem>
+                    <FormDescription>
+                      The AWS profile name from your ~/.aws/credentials file.
+                      Leave blank to use your default AWS credentials.
+                    </FormDescription>
+                  </div>
+                )}
+              />
             </SettingGroup>
 
             <SettingGroup title="AI Assist">
@@ -1259,7 +1342,10 @@ export const UserConfigForm: React.FC = () => {
                     <FormDescription>
                       If the model starts with "claude-", we will use your
                       Anthropic API key. If the model starts with "gemini-", we
-                      will use your Google AI API key. Otherwise, we will use
+                      will use your Google AI API key. If the model starts with
+                      a "bedrock/" prefix followed by a model id (e.g.,
+                      "bedrock/anthropic.claude-3-sonnet-20240229"), we will use
+                      your AWS Bedrock configuration. Otherwise, we will use
                       your OpenAI API key.
                     </FormDescription>
                   </div>
@@ -1425,7 +1511,7 @@ export const UserConfigForm: React.FC = () => {
             ))}
 
             <div className="p-2 text-xs text-muted-foreground self-start">
-              <span>Version: {getMarimoVersion()}</span>
+              <span>Version: {marimoVersion}</span>
             </div>
 
             <div className="flex-1" />
@@ -1455,7 +1541,10 @@ const SettingGroup = ({
 const IsOverridden = ({
   userConfig,
   name,
-}: { userConfig: UserConfig; name: FieldPath<UserConfig> }) => {
+}: {
+  userConfig: UserConfig;
+  name: FieldPath<UserConfig>;
+}) => {
   const currentValue = get(userConfig, name);
   const overrides = useAtomValue(configOverridesAtom);
   const overriddenValue = get(overrides as UserConfig, name);
