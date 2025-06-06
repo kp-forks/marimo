@@ -180,6 +180,7 @@ class DependencyManager:
     openai = Dependency("openai")
     matplotlib = Dependency("matplotlib")
     anywidget = Dependency("anywidget")
+    traitlets = Dependency("traitlets")
     watchdog = Dependency("watchdog")
     ipython = Dependency("IPython")
     ipywidgets = Dependency("ipywidgets")
@@ -204,6 +205,9 @@ class DependencyManager:
     )
     tomlkit = Dependency("tomlkit")
     loro = Dependency("loro")
+    boto3 = Dependency("boto3")
+    litellm = Dependency("litellm")
+    redshift_connector = Dependency("redshift_connector")
 
     # Version requirements to properly support the new superfences introduced in
     # pymdown#2470

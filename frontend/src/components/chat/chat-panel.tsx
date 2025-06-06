@@ -25,14 +25,15 @@ import {
   type SetStateAction,
   type Dispatch,
   memo,
+  useEffect,
+  useMemo,
 } from "react";
 import { generateUUID } from "@/utils/uuid";
-import { type Message, useChat } from "ai/react";
+import type { Message } from "ai/react";
+import { useChat } from "@ai-sdk/react";
 import { PromptInput } from "../editor/ai/add-cell-with-ai";
 import type { ReactCodeMirrorRef } from "@uiw/react-codemirror";
 import { Tooltip, TooltipProvider } from "../ui/tooltip";
-import { asURL } from "@/utils/url";
-import { API } from "@/core/network/api";
 import { cn } from "@/utils/cn";
 import { MarkdownRenderer } from "./markdown-renderer";
 import { Logger } from "@/utils/Logger";
@@ -46,13 +47,14 @@ import { useOpenSettingsToTab } from "../app-config/state";
 import { PanelEmptyState } from "../editor/chrome/panels/empty-state";
 import { CopyClipboardIcon } from "../icons/copy-icon";
 import { timeAgo } from "@/utils/dates";
+import { ReasoningAccordion } from "./reasoning-accordion";
+import { useRuntimeManager } from "@/core/runtime/config";
 
 interface ChatHeaderProps {
   onNewChat: () => void;
   activeChatId: string | undefined;
   setActiveChat: (id: string | null) => void;
   chats: Chat[];
-  setMessages: (messages: Message[]) => void;
 }
 
 const ChatHeader: React.FC<ChatHeaderProps> = ({
@@ -60,7 +62,6 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({
   activeChatId,
   setActiveChat,
   chats,
-  setMessages,
 }) => {
   const ai = useAtomValue(aiAtom);
   const { handleClick } = useOpenSettingsToTab();
@@ -110,13 +111,6 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({
                   )}
                   onClick={() => {
                     setActiveChat(chat.id);
-                    setMessages(
-                      chat.messages.map(({ role, content, timestamp }) => ({
-                        role,
-                        content,
-                        id: timestamp.toString(),
-                      })),
-                    );
                   }}
                 >
                   <div className="font-medium">{chat.title}</div>
@@ -140,10 +134,21 @@ interface ChatMessageProps {
   onEdit: (index: number, newValue: string) => void;
   setChatState: Dispatch<SetStateAction<ChatState>>;
   chatState: ChatState;
+  isStreamingReasoning: boolean;
+  totalMessages: number;
 }
 
 const ChatMessage: React.FC<ChatMessageProps> = memo(
-  ({ message, index, theme, onEdit, setChatState, chatState }) => (
+  ({
+    message,
+    index,
+    theme,
+    onEdit,
+    setChatState,
+    chatState,
+    isStreamingReasoning,
+    totalMessages,
+  }) => (
     <div
       className={cn(
         "flex group relative",
@@ -186,7 +191,27 @@ const ChatMessage: React.FC<ChatMessageProps> = memo(
           <div className="absolute right-1 top-1 opacity-0 group-hover:opacity-100 transition-opacity">
             <CopyClipboardIcon className="h-3 w-3" value={message.content} />
           </div>
-          <MarkdownRenderer content={message.content} />
+          {message.parts?.map((part, i) => {
+            switch (part.type) {
+              case "text":
+                return <MarkdownRenderer content={part.text} />;
+
+              case "reasoning":
+                return (
+                  <ReasoningAccordion
+                    reasoning={part.reasoning}
+                    index={i}
+                    isStreaming={
+                      index === totalMessages - 1 && isStreamingReasoning
+                    }
+                  />
+                );
+
+              /* handle other part types … */
+              default:
+                return null;
+            }
+          })}
         </div>
       )}
     </div>
@@ -247,8 +272,10 @@ const ChatPanelBody = () => {
   const [newThreadInput, setNewThreadInput] = useState("");
   const newThreadInputRef = useRef<ReactCodeMirrorRef>(null);
   const newMessageInputRef = useRef<ReactCodeMirrorRef>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { theme } = useTheme();
+  const runtimeManager = useRuntimeManager();
 
   const {
     messages,
@@ -262,11 +289,22 @@ const ChatPanelBody = () => {
     reload,
     stop,
   } = useChat({
+    id: activeChat?.id,
+    initialMessages: useMemo(() => {
+      return activeChat
+        ? activeChat.messages.map(({ role, content, timestamp, parts }) => ({
+            role,
+            content,
+            id: timestamp.toString(),
+            parts,
+          }))
+        : [];
+    }, [activeChat]),
     keepLastMessageOnError: true,
     // Throttle the messages and data updates to 100ms
     experimental_throttle: 100,
-    api: asURL("api/ai/chat").toString(),
-    headers: API.headers(),
+    api: runtimeManager.getAiURL("chat").toString(),
+    headers: runtimeManager.headers(),
     experimental_prepareRequestBody: (options) => {
       return {
         ...options,
@@ -276,14 +314,15 @@ const ChatPanelBody = () => {
         includeOtherCode: getCodes(""),
       };
     },
-    streamProtocol: "text",
     onFinish: (message) => {
-      if (!chatState.activeChatId) {
-        Logger.warn("No active chat");
-        return;
-      }
       setChatState((prev) =>
-        addMessageToChat(prev, prev.activeChatId, "assistant", message.content),
+        addMessageToChat(
+          prev,
+          prev.activeChatId,
+          "assistant",
+          message.content,
+          message.parts,
+        ),
       );
     },
     onError: (error) => {
@@ -295,6 +334,46 @@ const ChatPanelBody = () => {
   });
 
   const isLoading = status === "submitted" || status === "streaming";
+
+  const isLastMessageReasoning = (messages: Message[]): boolean => {
+    if (messages.length === 0) {
+      return false;
+    }
+
+    const lastMessage = messages.at(-1);
+    if (!lastMessage) {
+      return false;
+    }
+
+    if (lastMessage.role !== "assistant" || !lastMessage.parts) {
+      return false;
+    }
+
+    const parts = lastMessage.parts;
+    if (parts.length === 0) {
+      return false;
+    }
+
+    // Check if the last part is reasoning
+    const lastPart = parts[parts.length - 1];
+    return lastPart.type === "reasoning";
+  };
+
+  // Check if we're currently streaming reasoning in the latest message
+  const isStreamingReasoning =
+    isLoading && messages.length > 0 && isLastMessageReasoning(messages);
+
+  // Scroll to the latest chat message at the bottom
+  useEffect(() => {
+    const scrollToBottom = () => {
+      if (scrollContainerRef.current) {
+        const container = scrollContainerRef.current;
+        container.scrollTop = container.scrollHeight;
+      }
+    };
+
+    requestAnimationFrame(scrollToBottom);
+  }, [chatState.activeChatId]);
 
   const createNewThread = (initialMessage: string) => {
     const newChat: Chat = {
@@ -316,7 +395,6 @@ const ChatPanelBody = () => {
       activeChatId: newChat.id,
     }));
 
-    setMessages([]);
     setInput("");
     append({
       role: "user",
@@ -326,7 +404,6 @@ const ChatPanelBody = () => {
 
   const handleNewChat = () => {
     setActiveChat(null);
-    setMessages([]);
     setInput("");
     setNewThreadInput("");
   };
@@ -372,11 +449,13 @@ const ChatPanelBody = () => {
           activeChatId={activeChat?.id}
           setActiveChat={setActiveChat}
           chats={chatState.chats}
-          setMessages={setMessages}
         />
       </TooltipProvider>
 
-      <div className="flex-1 px-3 bg-[var(--slate-1)] gap-4 py-3 flex flex-col overflow-y-auto">
+      <div
+        className="flex-1 px-3 bg-[var(--slate-1)] gap-4 py-3 flex flex-col overflow-y-auto"
+        ref={scrollContainerRef}
+      >
         {(!messages || messages.length === 0) && (
           <div className="flex rounded-md border px-1 bg-background">
             <PromptInput
@@ -400,6 +479,8 @@ const ChatPanelBody = () => {
             onEdit={handleMessageEdit}
             setChatState={setChatState}
             chatState={chatState}
+            isStreamingReasoning={isStreamingReasoning}
+            totalMessages={messages.length}
           />
         ))}
 

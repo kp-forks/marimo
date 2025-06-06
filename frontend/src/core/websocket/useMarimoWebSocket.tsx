@@ -26,7 +26,6 @@ import { jsonParseWithSpecialChar } from "@/utils/json/json-parser";
 import type { SessionId } from "../kernel/session";
 import { useBannersActions } from "../errors/state";
 import { useAlertActions } from "../alerts/state";
-import { createWsUrl } from "./createWsUrl";
 import { useSetAppConfig } from "../config/config";
 import {
   handleCellOperation,
@@ -34,7 +33,7 @@ import {
   handleRemoveUIElements,
 } from "../kernel/handlers";
 import { queryParamHandlers } from "../kernel/queryParamHandlers";
-import type { JsonString } from "@/utils/json/base64";
+import type { Base64String, JsonString } from "@/utils/json/base64";
 import { useDatasetsActions } from "../datasets/state";
 import type { RequestId } from "../network/DeferredRequestRegistry";
 import type { VariableName } from "../variables/types";
@@ -50,6 +49,12 @@ import {
   useDataSourceActions,
 } from "../datasets/data-source-connections";
 import { SECRETS_REGISTRY } from "../secrets/request-registry";
+import {
+  handleWidgetMessage,
+  isMessageWidgetState,
+  MODEL_MANAGER,
+} from "@/plugins/impl/anywidget/model";
+import { useRuntimeManager } from "../runtime/config";
 
 /**
  * WebSocket that connects to the Marimo kernel and handles incoming messages.
@@ -78,6 +83,7 @@ export function useMarimoWebSocket(opts: {
   const { addPackageAlert } = useAlertActions();
   const setKioskMode = useSetAtom(kioskModeAtom);
   const setCapabilities = useSetAtom(capabilitiesAtom);
+  const runtimeManager = useRuntimeManager();
 
   const handleMessage = (e: MessageEvent<JsonString<OperationMessage>>) => {
     const msg = jsonParseWithSpecialChar(e.data);
@@ -102,13 +108,26 @@ export function useMarimoWebSocket(opts: {
       case "interrupted":
         return;
 
-      case "send-ui-element-message":
-        UI_ELEMENT_REGISTRY.broadcastMessage(
-          msg.data.ui_element as UIElementId,
-          msg.data.message,
-          msg.data.buffers,
-        );
+      case "send-ui-element-message": {
+        const modelId = msg.data.model_id;
+        const uiElement = msg.data.ui_element;
+        const message = msg.data.message;
+        const buffers = (msg.data.buffers ?? []) as Base64String[];
+
+        if (modelId && isMessageWidgetState(message)) {
+          handleWidgetMessage(modelId, message, buffers, MODEL_MANAGER);
+        }
+
+        if (uiElement) {
+          UI_ELEMENT_REGISTRY.broadcastMessage(
+            uiElement as UIElementId,
+            msg.data.message,
+            buffers,
+          );
+        }
+
         return;
+      }
 
       case "remove-ui-elements":
         handleRemoveUIElements(msg.data);
@@ -257,7 +276,7 @@ export function useMarimoWebSocket(opts: {
     /**
      * Unique URL for this session.
      */
-    url: createWsUrl(sessionId),
+    url: runtimeManager.getWsURL(sessionId).toString(),
 
     /**
      * Open callback. Set the connection status to open.

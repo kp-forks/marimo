@@ -19,6 +19,7 @@ from marimo._server.ai.prompts import (
 from marimo._server.ai.providers import (
     DEFAULT_MODEL,
     AnyProviderConfig,
+    StreamOptions,
     get_completion_provider,
     get_max_tokens,
     get_model,
@@ -46,6 +47,7 @@ router = APIRouter()
 
 def get_ai_config(config: MarimoConfig) -> AiConfig:
     ai_config = config.get("ai", None)
+    LOGGER.debug(f"ai_config: {ai_config}")
     if ai_config is None:
         raise HTTPException(
             status_code=HTTPStatus.BAD_REQUEST,
@@ -163,7 +165,9 @@ async def ai_chat(
     )
 
     return StreamingResponse(
-        content=provider.as_stream_response(response),
+        content=provider.as_stream_response(
+            response, StreamOptions(include_reasoning=True, format_stream=True)
+        ),
         media_type="application/json",
     )
 

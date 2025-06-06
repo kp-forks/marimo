@@ -22,11 +22,7 @@ import {
   SearchIcon,
 } from "lucide-react";
 import { ShutdownButton } from "../editor/controls/shutdown-button";
-import {
-  type SessionId,
-  getSessionId,
-  isSessionId,
-} from "@/core/kernel/session";
+import { getSessionId, isSessionId } from "@/core/kernel/session";
 import { useInterval } from "@/hooks/useInterval";
 import { useImperativeModal } from "@/components/modal/ImperativeModal";
 import { AlertDialogDestructiveAction } from "@/components/ui/alert-dialog";
@@ -310,7 +306,8 @@ const Node = ({ node, style }: NodeRendererProps<FileInfo>) => {
         ? Paths.rest(node.data.path, root)
         : node.data.path;
 
-    const isMarkdown = relativePath.endsWith(".md");
+    const isMarkdown =
+      relativePath.endsWith(".md") || relativePath.endsWith(".qmd");
 
     return (
       <a
@@ -468,9 +465,9 @@ const SessionShutdownButton: React.FC<{ filePath: string }> = ({
               <AlertDialogDestructiveAction
                 onClick={(e) => {
                   const ids = runningNotebooks.get(filePath);
-                  assertExists(ids);
+                  assertExists(ids?.sessionId);
                   shutdownSession({
-                    sessionId: ids.sessionId as SessionId,
+                    sessionId: ids.sessionId,
                   }).then((response) => {
                     setRunningNotebooks(
                       Maps.keyBy(response.files, (file) => file.path),

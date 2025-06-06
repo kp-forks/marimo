@@ -5,7 +5,6 @@ import type { CellId } from "@/core/cells/ids";
 import { isWasm } from "@/core/wasm/utils";
 import type { Extension } from "@codemirror/state";
 import ReconnectingWebSocket from "partysocket/ws";
-import { createWsUrl } from "@/core/websocket/createWsUrl";
 import { getSessionId } from "@/core/kernel/session";
 import { once } from "@/utils/once";
 import { loroSyncAnnotation, loroSyncPlugin } from "./loro/sync";
@@ -28,7 +27,6 @@ import { createSelectionLayer } from "./loro/awareness";
 import { createCursorLayer } from "./loro/awareness";
 import { remoteAwarenessStateField } from "./loro/awareness";
 import type { UserState } from "./loro/awareness";
-import { initialMode } from "@/core/mode";
 import { isRtcEnabled, usernameAtom } from "@/core/rtc/state";
 import { getColor } from "./loro/colors";
 import {
@@ -38,6 +36,8 @@ import {
 } from "../language/metadata";
 import { invariant } from "@/utils/invariant";
 import { isEqual } from "lodash-es";
+import { getInitialAppMode } from "@/core/mode";
+import { getRuntimeManager } from "@/core/runtime/config";
 
 const logger = Logger.get("rtc");
 const awarenessLogger = logger.get("awareness").disabled();
@@ -73,7 +73,8 @@ const awareness = new Awareness<AwarenessState>(doc.peerIdStr);
 const getWs = once(() => {
   logger.debug("creating websocket");
 
-  const url = createWsUrl(getSessionId()).replace("/ws", "/ws_sync");
+  const runtimeManager = getRuntimeManager();
+  const url = runtimeManager.getWsSyncURL(getSessionId()).toString();
 
   // Create the websocket, but don't connect it yet
   const ws = new ReconnectingWebSocket(url, undefined, {
@@ -89,6 +90,11 @@ const getWs = once(() => {
     // First wait the main /ws connection to be open
     // This is to ensure the LoroDoc is created on the server
     await waitForConnectionOpen();
+
+    // Don't open the websocket if not in edit mode
+    if (getInitialAppMode() !== "edit") {
+      return;
+    }
 
     // Now open the websocket
     ws.reconnect();
@@ -138,7 +144,7 @@ const getWs = once(() => {
 });
 
 // Kickoff the WS connection for edit mode
-if (isRtcEnabled() && initialMode === "edit") {
+if (isRtcEnabled()) {
   getWs();
 }
 

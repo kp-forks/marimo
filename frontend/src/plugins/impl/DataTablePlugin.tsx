@@ -5,7 +5,6 @@ import { DataTable } from "../../components/data-table/data-table";
 import {
   generateColumns,
   inferFieldTypes,
-  MAX_COLUMNS,
 } from "../../components/data-table/columns";
 import { Labeled } from "./common/labeled";
 import { Alert, AlertTitle } from "@/components/ui/alert";
@@ -19,8 +18,11 @@ import { Logger } from "@/utils/Logger";
 import {
   type DataTableSelection,
   toFieldTypes,
-  type ColumnHeaderSummary,
+  type ColumnHeaderStats,
   type FieldTypesWithExternalType,
+  type TooManyRows,
+  TOO_MANY_ROWS,
+  type ColumnName,
 } from "@/components/data-table/types";
 import type {
   ColumnFiltersState,
@@ -57,17 +59,18 @@ import { type CellId, findCellId } from "@/core/cells/ids";
 import { slotsController } from "@/core/slots/slots";
 import { ContextAwarePanelItem } from "@/components/editor/chrome/panels/context-aware-panel/context-aware-panel";
 import { RowViewerPanel } from "@/components/data-table/row-viewer-panel/row-viewer";
-import { usePanelOwnership } from "@/components/data-table/row-viewer-panel/use-panel-ownership";
+import { usePanelOwnership } from "@/components/data-table/hooks/use-panel-ownership";
 import { Provider } from "jotai";
 import { store } from "@/core/state/jotai";
 import { loadTableData } from "@/components/data-table/utils";
 import { hasChart } from "@/components/data-table/charts/storage";
+import { ColumnExplorerPanel } from "@/components/data-table/column-explorer-panel/column-explorer";
 
 type CsvURL = string;
 export type TableData<T> = T[] | CsvURL;
 interface ColumnSummaries<T = unknown> {
   data: TableData<T> | null | undefined;
-  summaries: ColumnHeaderSummary[];
+  stats: Record<ColumnName, ColumnHeaderStats>;
   is_disabled?: boolean;
 }
 
@@ -89,9 +92,36 @@ export type CalculateTopKRows = <T>(req: {
   data: Array<[unknown, number]>;
 }>;
 
+export type PreviewColumn = (opts: { column: string }) => Promise<{
+  chart_spec: string | null;
+  chart_max_rows_errors: boolean;
+  chart_code: string | null;
+  error: string | null;
+  missing_packages: string[] | null;
+  stats: ColumnHeaderStats | null;
+}>;
+
 export interface GetRowResult {
   rows: unknown[];
 }
+
+const maybeNumber = z.union([z.number(), z.nan(), z.string()]).nullable();
+const columnStats = z.object({
+  total: z.number().nullable(),
+  nulls: z.number().nullable(),
+  unique: z.number().nullable(),
+  true: z.number().nullable(),
+  false: z.number().nullable(),
+  min: maybeNumber,
+  max: maybeNumber,
+  std: maybeNumber,
+  mean: maybeNumber,
+  median: maybeNumber,
+  p5: maybeNumber,
+  p25: maybeNumber,
+  p75: maybeNumber,
+  p95: maybeNumber,
+});
 
 /**
  * Arguments for a data table
@@ -102,7 +132,7 @@ export interface GetRowResult {
 interface Data<T> {
   label: string | null;
   data: TableData<T>;
-  totalRows: number | "too_many";
+  totalRows: number | TooManyRows;
   pagination: boolean;
   pageSize: number;
   selection: DataTableSelection;
@@ -116,6 +146,7 @@ interface Data<T> {
   textJustifyColumns?: Record<string, "left" | "center" | "right">;
   wrappedColumns?: string[];
   totalColumns: number;
+  maxColumns: number | "all";
   hasStableRowId: boolean;
   lazy: boolean;
 }
@@ -136,12 +167,13 @@ type DataTableFunctions = {
     max_columns?: number | null;
   }) => Promise<{
     data: TableData<T>;
-    total_rows: number | "too_many";
+    total_rows: number | TooManyRows;
     cell_styles?: CellStyleState | null;
   }>;
   get_data_url?: GetDataUrl;
   get_row_ids?: GetRowIds;
   calculate_top_k_rows?: CalculateTopKRows;
+  preview_column?: PreviewColumn;
 };
 
 type S = Array<number | string | { rowId: string; columnName?: string }>;
@@ -155,7 +187,7 @@ export const DataTablePlugin = createPlugin<S>("marimo-table")
       ]),
       label: z.string().nullable(),
       data: z.union([z.string(), z.array(z.object({}).passthrough())]),
-      totalRows: z.union([z.number(), z.literal("too_many")]),
+      totalRows: z.union([z.number(), z.literal(TOO_MANY_ROWS)]),
       pagination: z.boolean().default(false),
       pageSize: z.number().default(10),
       selection: z
@@ -183,6 +215,7 @@ export const DataTablePlugin = createPlugin<S>("marimo-table")
         )
         .nullish(),
       totalColumns: z.number(),
+      maxColumns: z.union([z.number(), z.literal("all")]),
       hasStableRowId: z.boolean().default(false),
       cellStyles: z.record(z.record(z.object({}).passthrough())).optional(),
       // Whether to load the data lazily.
@@ -201,17 +234,7 @@ export const DataTablePlugin = createPlugin<S>("marimo-table")
         data: z
           .union([z.string(), z.array(z.object({}).passthrough())])
           .nullable(),
-        summaries: z.array(
-          z.object({
-            column: z.union([z.number(), z.string()]),
-            min: z.union([z.number(), z.nan(), z.string()]).nullish(),
-            max: z.union([z.number(), z.nan(), z.string()]).nullish(),
-            unique: z.union([z.number(), z.array(z.any())]).nullish(),
-            nulls: z.number().nullish(),
-            true: z.number().nullish(),
-            false: z.number().nullish(),
-          }),
-        ),
+        stats: z.record(z.string(), columnStats),
         is_disabled: z.boolean().optional(),
       }),
     ),
@@ -231,7 +254,7 @@ export const DataTablePlugin = createPlugin<S>("marimo-table")
       .output(
         z.object({
           data: z.union([z.string(), z.array(z.object({}).passthrough())]),
-          total_rows: z.union([z.number(), z.literal("too_many")]),
+          total_rows: z.union([z.number(), z.literal(TOO_MANY_ROWS)]),
           cell_styles: z
             .record(z.record(z.object({}).passthrough()))
             .nullable(),
@@ -257,6 +280,16 @@ export const DataTablePlugin = createPlugin<S>("marimo-table")
           data: z.array(z.tuple([z.any(), z.number()])),
         }),
       ),
+    preview_column: rpc.input(z.object({ column: z.string() })).output(
+      z.object({
+        chart_spec: z.string().nullable(),
+        chart_max_rows_errors: z.boolean(),
+        chart_code: z.string().nullable(),
+        error: z.string().nullable(),
+        missing_packages: z.array(z.string()).nullable(),
+        stats: columnStats.nullable(),
+      }),
+    ),
   })
   .renderer((props) => {
     return (
@@ -387,7 +420,7 @@ export const LoadingDataTableComponent = memo(
     // Data loading
     const { data, loading, error } = useAsyncData<{
       rows: T[];
-      totalRows: number | "too_many";
+      totalRows: number | TooManyRows;
       cellStyles: CellStyleState | undefined | null;
     }>(async () => {
       // If there is no data, return an empty array
@@ -460,6 +493,7 @@ export const LoadingDataTableComponent = memo(
       searchQuery,
       useDeepCompareMemoize(props.fieldTypes),
       props.data,
+      props.totalRows,
       props.lazy,
       paginationState.pageSize,
       paginationState.pageIndex,
@@ -507,7 +541,7 @@ export const LoadingDataTableComponent = memo(
       ColumnSummaries<T>
     >(async () => {
       if (props.totalRows === 0 || !props.showColumnSummaries) {
-        return { data: null, summaries: [] };
+        return { data: null, stats: {} };
       }
       return props.get_column_summaries({});
     }, [
@@ -530,7 +564,7 @@ export const LoadingDataTableComponent = memo(
         <DelayMount milliseconds={200}>
           <LoadingTable
             pageSize={
-              props.totalRows !== "too_many" && props.totalRows > 0
+              props.totalRows !== TOO_MANY_ROWS && props.totalRows > 0
                 ? props.totalRows
                 : props.pageSize
             }
@@ -606,6 +640,7 @@ const DataTableComponent = ({
   label,
   data,
   totalRows,
+  maxColumns,
   pagination,
   selection,
   value,
@@ -637,6 +672,7 @@ const DataTableComponent = ({
   toggleDisplayHeader,
   chartsFeatureEnabled,
   calculate_top_k_rows,
+  preview_column,
   getRow,
   cellId,
 }: DataTableProps<unknown> &
@@ -646,24 +682,21 @@ const DataTableComponent = ({
     getRow: (rowIdx: number) => Promise<GetRowResult>;
   }): JSX.Element => {
   const id = useId();
-  const [focusedRowIdx, setFocusedRowIdx] = useState(0);
-  const {
-    isPanelOpen: isRowViewerPanelOpen,
-    togglePanel: toggleRowViewerPanel,
-  } = usePanelOwnership(id, cellId);
+  const [viewedRowIdx, setViewedRowIdx] = useState(0);
+  const { isPanelOpen, togglePanel } = usePanelOwnership(id, cellId);
 
   const chartSpecModel = useMemo(() => {
     if (!columnSummaries) {
       return ColumnChartSpecModel.EMPTY;
     }
-    if (!fieldTypes || !columnSummaries.summaries) {
+    if (!fieldTypes || !columnSummaries.stats) {
       return ColumnChartSpecModel.EMPTY;
     }
     const fieldTypesWithoutExternalTypes = toFieldTypes(fieldTypes);
     return new ColumnChartSpecModel(
       columnSummaries.data || [],
       fieldTypesWithoutExternalTypes,
-      columnSummaries.summaries,
+      columnSummaries.stats,
       {
         includeCharts: Boolean(columnSummaries.data),
       },
@@ -674,10 +707,13 @@ const DataTableComponent = ({
 
   const memoizedUnclampedFieldTypes =
     useDeepCompareMemoize(fieldTypesOrInferred);
-  const memoizedClampedFieldTypes = useMemo(
-    () => memoizedUnclampedFieldTypes.slice(0, MAX_COLUMNS),
-    [memoizedUnclampedFieldTypes],
-  );
+
+  const memoizedClampedFieldTypes = useMemo(() => {
+    if (maxColumns === "all") {
+      return memoizedUnclampedFieldTypes;
+    }
+    return memoizedUnclampedFieldTypes.slice(0, maxColumns);
+  }, [maxColumns, memoizedUnclampedFieldTypes]);
 
   const memoizedRowHeaders = useDeepCompareMemoize(rowHeaders);
   const memoizedTextJustifyColumns = useDeepCompareMemoize(textJustifyColumns);
@@ -749,15 +785,18 @@ const DataTableComponent = ({
     },
   );
 
+  const isSelectable = selection === "multi" || selection === "single";
+
   return (
     <>
       {/* When the totalRows is "too_many" and the pageSize is the same as the
        * number of rows, we are likely displaying all the data (could be more, but we don't know the total). */}
-      {totalRows === "too_many" && paginationState.pageSize === data.length && (
-        <Banner className="mb-1 rounded">
-          Previewing the first {paginationState.pageSize} rows.
-        </Banner>
-      )}
+      {totalRows === TOO_MANY_ROWS &&
+        paginationState.pageSize === data.length && (
+          <Banner className="mb-1 rounded">
+            Previewing the first {paginationState.pageSize} rows.
+          </Banner>
+        )}
       {shownColumns < totalColumns && shownColumns > 0 && (
         <Banner className="mb-1 rounded">
           Result clipped. Showing {shownColumns} of {totalColumns} columns.
@@ -772,17 +811,32 @@ const DataTableComponent = ({
           1,000,000 rows.
         </Banner>
       )}
-      {isRowViewerPanelOpen && (
+
+      {isPanelOpen("row-viewer") && (
         <ContextAwarePanelItem>
           <RowViewerPanel
             getRow={getRow}
             fieldTypes={memoizedUnclampedFieldTypes}
-            totalRows={totalRows === "too_many" ? 100 : totalRows}
-            rowIdx={focusedRowIdx}
-            setRowIdx={setFocusedRowIdx}
+            totalRows={totalRows}
+            rowIdx={viewedRowIdx}
+            setRowIdx={setViewedRowIdx}
+            isSelectable={isSelectable}
+            isRowSelected={rowSelection[viewedRowIdx]}
+            handleRowSelectionChange={handleRowSelectionChange}
           />
         </ContextAwarePanelItem>
       )}
+      {isPanelOpen("column-explorer") && preview_column && (
+        <ContextAwarePanelItem>
+          <ColumnExplorerPanel
+            previewColumn={preview_column}
+            fieldTypes={memoizedUnclampedFieldTypes}
+            totalRows={totalRows}
+            totalColumns={totalColumns}
+          />
+        </ContextAwarePanelItem>
+      )}
+
       <ColumnChartContext.Provider value={chartSpecModel}>
         <Labeled label={label} align="top" fullWidth={true}>
           <DataTable
@@ -817,9 +871,10 @@ const DataTableComponent = ({
             getRowIds={get_row_ids}
             toggleDisplayHeader={toggleDisplayHeader}
             chartsFeatureEnabled={chartsFeatureEnabled}
-            toggleRowViewerPanel={toggleRowViewerPanel}
-            isRowViewerPanelOpen={isRowViewerPanelOpen}
-            onFocusRowChange={(rowIdx) => setFocusedRowIdx(rowIdx)}
+            togglePanel={togglePanel}
+            isPanelOpen={isPanelOpen}
+            viewedRowIdx={viewedRowIdx}
+            onViewedRowChange={(rowIdx) => setViewedRowIdx(rowIdx)}
           />
         </Labeled>
       </ColumnChartContext.Provider>

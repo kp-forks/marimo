@@ -6,10 +6,10 @@ import { WebSocketTransport } from "@open-rpc/client-js";
 import { Transport } from "@open-rpc/client-js/build/transports/Transport";
 import type { JSONRPCRequestData } from "@open-rpc/client-js/build/Request";
 import { waitForEnabledCopilot } from "./state";
-import { waitForWs } from "@/utils/waitForWs";
-import { resolveToWsUrl } from "@/core/websocket/createWsUrl";
 import { Logger } from "@/utils/Logger";
 import { toast } from "@/components/ui/use-toast";
+import { waitForConnectionOpen } from "@/core/network/connection";
+import { getRuntimeManager } from "@/core/runtime/config";
 
 // Dummy file for the copilot language server
 export const COPILOT_FILENAME = "/__marimo_copilot__.py";
@@ -27,11 +27,15 @@ export const createWSTransport = once(() => {
  */
 class LazyWebsocketTransport extends Transport {
   private delegate: WebSocketTransport | undefined;
-  private readonly WS_URL = resolveToWsUrl("lsp/copilot");
 
   constructor() {
     super();
     this.delegate = undefined;
+  }
+
+  private getWsUrl(): string {
+    const runtimeManager = getRuntimeManager();
+    return runtimeManager.getLSPURL("copilot").toString();
   }
 
   private async tryConnect(retries = 3, delayMs = 1000): Promise<void> {
@@ -39,7 +43,7 @@ class LazyWebsocketTransport extends Transport {
       try {
         // Create delegate, if it doesn't exist
         if (!this.delegate) {
-          this.delegate = new WebSocketTransport(this.WS_URL);
+          this.delegate = new WebSocketTransport(this.getWsUrl());
         }
         await this.delegate.connect();
         Logger.log("Copilot#connect: Connected successfully");
@@ -69,7 +73,7 @@ class LazyWebsocketTransport extends Transport {
     // Wait for copilot to be enabled
     await waitForEnabledCopilot();
     // Wait for ws to be available with retries
-    await waitForWs(this.WS_URL, 3);
+    await waitForConnectionOpen();
 
     // Try connecting with retries
     return this.tryConnect();

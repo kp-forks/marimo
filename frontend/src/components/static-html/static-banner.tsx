@@ -6,9 +6,7 @@ import { isStaticNotebook } from "@/core/static/static-state";
 import type React from "react";
 import { Button } from "../ui/button";
 import { toast } from "../ui/use-toast";
-import { getMarimoCode } from "@/core/dom/marimo-tag";
 import { downloadBlob } from "@/utils/download";
-import { getFilenameFromDOM } from "@/core/dom/htmlUtils";
 import {
   DialogHeader,
   Dialog,
@@ -21,19 +19,26 @@ import { CopyIcon, DownloadIcon } from "lucide-react";
 import { createShareableLink } from "@/core/wasm/share";
 import { copyToClipboard } from "@/utils/copy";
 import { Constants } from "@/core/constants";
+import { useFilename } from "@/core/saving/filename";
+import { useAtomValue } from "jotai";
+import { codeAtom } from "@/core/saving/file-state";
 
 export const StaticBanner: React.FC = () => {
+  const code = useAtomValue(codeAtom);
+
   if (!isStaticNotebook()) {
     return null;
   }
 
-  const code = getMarimoCode();
   if (!code) {
     return null;
   }
 
   return (
-    <div className="px-4 py-2 bg-[var(--sky-2)] border-b border-[var(--sky-7)] text-md text-[var(--sky-11)] font-semibold flex justify-between items-center gap-4 no-print">
+    <div
+      className="px-4 py-2 bg-[var(--sky-2)] border-b border-[var(--sky-7)] text-md text-[var(--sky-11)] font-semibold flex justify-between items-center gap-4 no-print"
+      data-testid="static-notebook-banner"
+    >
       <span>
         This is a static Python notebook built using{" "}
         <a href={Constants.githubPage} target="_blank" className="underline">
@@ -51,7 +56,7 @@ export const StaticBanner: React.FC = () => {
 };
 
 const StaticBannerDialog = ({ code }: { code: string }) => {
-  let filename = getFilenameFromDOM() || "notebook.py";
+  let filename = useFilename() || "notebook.py";
   // Trim the path
   const lastSlash = filename.lastIndexOf("/");
   if (lastSlash !== -1) {

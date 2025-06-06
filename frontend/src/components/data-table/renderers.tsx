@@ -62,8 +62,9 @@ export function renderTableHeader<TData>(
 export function renderTableBody<TData>(
   table: Table<TData>,
   columns: Array<ColumnDef<TData>>,
-  isSelectionPanelOpen?: boolean,
+  rowViewerPanelOpen: boolean,
   getRowIndex?: (row: TData, idx: number) => number,
+  viewedRowIdx?: number,
 ): JSX.Element {
   const renderCells = (row: Row<TData>, cells: Array<Cell<TData, unknown>>) => {
     return cells.map((cell) => {
@@ -101,22 +102,33 @@ export function renderTableBody<TData>(
   return (
     <TableBody>
       {table.getRowModel().rows?.length ? (
-        table.getRowModel().rows.map((row) => (
-          <TableRow
-            key={row.id}
-            data-state={row.getIsSelected() && "selected"}
-            // These classes ensure that empty rows (nulls) still render
-            className={cn(
-              "border-t h-6",
-              isSelectionPanelOpen && "cursor-pointer",
-            )}
-            onClick={() => handleRowClick(row)}
-          >
-            {renderCells(row, row.getLeftVisibleCells())}
-            {renderCells(row, row.getCenterVisibleCells())}
-            {renderCells(row, row.getRightVisibleCells())}
-          </TableRow>
-        ))
+        table.getRowModel().rows.map((row) => {
+          // Only find the row index if the row viewer panel is open
+          const rowIndex = rowViewerPanelOpen
+            ? (getRowIndex?.(row.original, row.index) ?? row.index)
+            : undefined;
+          const isRowViewedInPanel =
+            rowViewerPanelOpen && viewedRowIdx === rowIndex;
+
+          return (
+            <TableRow
+              key={row.id}
+              data-state={row.getIsSelected() && "selected"}
+              // These classes ensure that empty rows (nulls) still render
+              className={cn(
+                "border-t h-6",
+                rowViewerPanelOpen && "cursor-pointer",
+                isRowViewedInPanel &&
+                  "bg-[var(--blue-3)] hover:bg-[var(--blue-3)] data-[state=selected]:bg-[var(--blue-4)]",
+              )}
+              onClick={() => handleRowClick(row)}
+            >
+              {renderCells(row, row.getLeftVisibleCells())}
+              {renderCells(row, row.getCenterVisibleCells())}
+              {renderCells(row, row.getRightVisibleCells())}
+            </TableRow>
+          );
+        })
       ) : (
         <TableRow>
           <TableCell colSpan={columns.length} className="h-24 text-center">
@@ -177,4 +189,24 @@ function columnSizingHandler<TData>(
     ...prevSizes,
     [column.id]: thead.getBoundingClientRect().width,
   }));
+}
+
+/**
+ * Render an unknown value as a string. Converts objects to JSON strings.
+ * @param opts.value - The value to render.
+ * @param opts.nullAsEmptyString - If true, null values will be "". Else, stringify.
+ */
+export function renderUnknownValue(opts: {
+  value: unknown;
+  nullAsEmptyString?: boolean;
+}): string {
+  const { value, nullAsEmptyString = false } = opts;
+
+  if (typeof value === "object" && value !== null) {
+    return JSON.stringify(value);
+  }
+  if (value === null && nullAsEmptyString) {
+    return "";
+  }
+  return String(value);
 }

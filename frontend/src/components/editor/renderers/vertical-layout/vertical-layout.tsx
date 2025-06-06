@@ -39,7 +39,7 @@ import { KnownQueryParams } from "@/core/constants";
 import { useResolvedMarimoConfig } from "@/core/config/config";
 import { MarkdownLanguageAdapter } from "@/core/codemirror/language/languages/markdown";
 import { isErrorMime } from "@/core/mime";
-import { getMarimoShowCode } from "@/core/dom/marimo-tag";
+import { showCodeInRunModeAtom } from "@/core/meta/state";
 
 type VerticalLayout = null;
 type VerticalLayoutProps = ICellRendererProps<VerticalLayout>;
@@ -52,12 +52,12 @@ const VerticalLayoutRenderer: React.FC<VerticalLayoutProps> = ({
   const { invisible } = useDelayVisibility(cells.length, mode);
   const kioskMode = useAtomValue(kioskModeAtom);
   const [userConfig] = useResolvedMarimoConfig();
+  const showCodeInRunModePreference = useAtomValue(showCodeInRunModeAtom);
 
   const urlParams = new URLSearchParams(window.location.search);
   const [showCode, setShowCode] = useState(() => {
-    // Check marimo-code tag setting first
-    const showCodePreference = getMarimoShowCode();
-    if (!showCodePreference) {
+    // Check if the setting was set in the mount options
+    if (!showCodeInRunModePreference) {
       return false;
     }
     // If 'auto' or not found, use URL param
@@ -173,6 +173,50 @@ const ActionButtons: React.FC<{
     await downloadAsHTML({ filename: document.title, includeCode: true });
   };
 
+  const isStatic = isStaticNotebook();
+  const actions: React.ReactNode[] = [];
+
+  if (canShowCode) {
+    actions.push(
+      <DropdownMenuItem
+        onSelect={onToggleShowCode}
+        id="notebook-action-show-code"
+        key="show-code"
+      >
+        <Code2Icon className="mr-2" size={14} strokeWidth={1.5} />
+        <span className="flex-1">Show code</span>
+        {showCode && <Check className="h-4 w-4" />}
+      </DropdownMenuItem>,
+      <DropdownMenuSeparator key="show-code-separator" />,
+    );
+  }
+
+  if (!isStatic) {
+    actions.push(
+      <DropdownMenuItem
+        onSelect={handleDownloadAsHTML}
+        id="notebook-action-download-html"
+        key="download-html"
+      >
+        <FolderDownIcon className="mr-2" size={14} strokeWidth={1.5} />
+        Download as HTML
+      </DropdownMenuItem>,
+      <DropdownMenuSeparator key="download-html-separator" />,
+      <DropdownMenuItem
+        onSelect={handleDownloadAsPNG}
+        id="notebook-action-download-png"
+        key="download-png"
+      >
+        <ImageIcon className="mr-2" size={14} strokeWidth={1.5} />
+        Download as PNG
+      </DropdownMenuItem>,
+    );
+  }
+
+  if (actions.length === 0) {
+    return null;
+  }
+
   // Don't change the id of this element
   // as this may be used in custom css to hide/show the actions dropdown
   return (
@@ -193,33 +237,7 @@ const ActionButtons: React.FC<{
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="no-print w-[220px]">
-          {canShowCode && (
-            <>
-              <DropdownMenuItem
-                onSelect={onToggleShowCode}
-                id="notebook-action-show-code"
-              >
-                <Code2Icon className="mr-2" size={14} strokeWidth={1.5} />
-                <span className="flex-1">Show code</span>
-                {showCode && <Check className="h-4 w-4" />}
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-            </>
-          )}
-          <DropdownMenuItem
-            onSelect={handleDownloadAsHTML}
-            id="notebook-action-download-html"
-          >
-            <FolderDownIcon className="mr-2" size={14} strokeWidth={1.5} />
-            Download as HTML
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            onSelect={handleDownloadAsPNG}
-            id="notebook-action-download-png"
-          >
-            <ImageIcon className="mr-2" size={14} strokeWidth={1.5} />
-            Download as PNG
-          </DropdownMenuItem>
+          {actions}
         </DropdownMenuContent>
       </DropdownMenu>
     </div>

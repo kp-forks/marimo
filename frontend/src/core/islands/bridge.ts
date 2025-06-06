@@ -2,7 +2,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import type { EditRequests, RunRequests } from "../network/types";
 import { Deferred } from "@/utils/Deferred";
-import { getMarimoVersion } from "../dom/marimo-tag";
+import { getMarimoVersion } from "../meta/globals";
 import { getWorkerRPC } from "@/core/wasm/rpc";
 import type { OperationMessage } from "../kernel/messages";
 import type { JsonString } from "@/utils/json/base64";
@@ -120,6 +120,11 @@ export class IslandsPyodideBridge implements RunRequests, EditRequests {
 
   sendRun: EditRequests["sendRun"] = async (request): Promise<null> => {
     await this.rpc.proxy.request.loadPackages(request.codes.join("\n"));
+    await this.putControlRequest(request);
+    return null;
+  };
+
+  sendModelValue: RunRequests["sendModelValue"] = async (request) => {
     await this.putControlRequest(request);
     return null;
   };

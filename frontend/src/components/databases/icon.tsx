@@ -14,7 +14,9 @@ import TrinoIcon from "./icons/trino.svg";
 import IcebergIcon from "./icons/iceberg.png";
 import DataFusionIcon from "./icons/datafusion.png";
 import PySparkIcon from "./icons/spark.svg";
+import RedshiftIcon from "./icons/redshift.svg";
 import { cn } from "@/utils/cn";
+import { DatabaseIcon } from "lucide-react";
 
 export type DBLogoName =
   | "sqlite"
@@ -31,7 +33,8 @@ export type DBLogoName =
   | "trino"
   | "iceberg"
   | "datafusion"
-  | "pyspark";
+  | "pyspark"
+  | "redshift";
 
 /**
  * Icons are from https://simpleicons.org/
@@ -58,6 +61,7 @@ const URLS: Record<DBLogoName, string | undefined> = {
   iceberg: IcebergIcon,
   datafusion: DataFusionIcon,
   pyspark: PySparkIcon,
+  redshift: RedshiftIcon,
 };
 
 export const DatabaseLogo: FC<DatabaseLogoProps> = ({ name, className }) => {
@@ -66,7 +70,8 @@ export const DatabaseLogo: FC<DatabaseLogoProps> = ({ name, className }) => {
   const url = URLS[lowerName as DBLogoName];
 
   if (!url) {
-    return null;
+    // Shift the icon down a bit to align with the text
+    return <DatabaseIcon className={cn("mt-0.5", className)} />;
   }
 
   return (
