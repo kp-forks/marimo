@@ -1,25 +1,26 @@
 /* Copyright 2024 Marimo. All rights reserved. */
 
-import { SlotNames } from "@/core/slots/slots";
 import { Fill, Slot, useSlot } from "@marimo-team/react-slotz";
 import { useAtom } from "jotai";
+import { CrosshairIcon, PinIcon, PinOffIcon, XIcon } from "lucide-react";
 import type { PropsWithChildren } from "react";
-import { PanelResizeHandle, Panel } from "react-resizable-panels";
-import { handleDragging } from "../../wrapper/utils";
-import { useResizeHandle } from "@/hooks/useResizeHandle";
-
-import { PinIcon, PinOffIcon, XIcon, CrosshairIcon } from "lucide-react";
-import { Tooltip } from "@/components/ui/tooltip";
+import { Panel, PanelResizeHandle } from "react-resizable-panels";
 import { Button } from "@/components/ui/button";
 import { Toggle } from "@/components/ui/toggle";
-import { ErrorBoundary } from "../../../boundary/ErrorBoundary";
+import { Tooltip } from "@/components/ui/tooltip";
+import { SlotNames } from "@/core/slots/slots";
+import { useResizeHandle } from "@/hooks/useResizeHandle";
 import { cn } from "@/utils/cn";
+import { ErrorBoundary } from "../../../boundary/ErrorBoundary";
+import { handleDragging } from "../../wrapper/utils";
 import {
+  contextAwarePanelOpen,
   contextAwarePanelOwner,
   isCellAwareAtom,
   isPinnedAtom,
-  contextAwarePanelOpen,
 } from "./atoms";
+
+export type PanelType = "row-viewer" | "column-explorer";
 
 export const ContextAwarePanel: React.FC = () => {
   const [owner, setOwner] = useAtom(contextAwarePanelOwner);
@@ -40,13 +41,13 @@ export const ContextAwarePanel: React.FC = () => {
 
   const renderModeToggle = () => {
     return (
-      <div className="flex flex-row items-center gap-2">
-        <Tooltip content={isPinned ? "Unpin" : "Pin"}>
+      <div className="flex flex-row items-center gap-3">
+        <Tooltip content={isPinned ? "Unpin panel" : "Pin panel"}>
           <Toggle
             size="xs"
             onPressedChange={() => setIsPinned(!isPinned)}
             pressed={isPinned}
-            aria-label={isPinned ? "Unpin" : "Pin"}
+            aria-label={isPinned ? "Unpin panel" : "Pin panel"}
           >
             {isPinned ? (
               <PinIcon className="w-4 h-4" />
@@ -55,7 +56,27 @@ export const ContextAwarePanel: React.FC = () => {
             )}
           </Toggle>
         </Tooltip>
-        <Tooltip content={isCellAware ? "Follow focused cell" : "Fixed"}>
+        <Tooltip
+          content={
+            isCellAware ? (
+              <div className="flex flex-col gap-1">
+                <span>Follow focused table</span>
+                <span className="text-xs text-muted-foreground w-64">
+                  The panel updates as cells that output tables are focused.
+                  Click to fix to the current cell.
+                </span>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-1">
+                <span>Focus on current table</span>
+                <span className="text-xs text-muted-foreground w-64">
+                  The panel is focused on the current table. Click to update
+                  based on which cell is focused.
+                </span>
+              </div>
+            )
+          }
+        >
           <Toggle
             size="xs"
             onPressedChange={() => setIsCellAware(!isCellAware)}

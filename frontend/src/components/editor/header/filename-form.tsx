@@ -1,4 +1,6 @@
 /* Copyright 2024 Marimo. All rights reserved. */
+
+import type { JSX } from "react";
 import { FilenameInput } from "@/components/editor/header/filename-input";
 import { useUpdateFilename } from "@/core/saving/filename";
 import { Paths } from "@/utils/paths";

@@ -4,8 +4,9 @@
  * Zod schema validation for marimo chart configuration.
  */
 
-import { DATA_TYPES } from "@/core/kernel/messages";
 import { z } from "zod";
+import { DATA_TYPES } from "@/core/kernel/messages";
+import { DEFAULT_COLOR_SCHEME, EMPTY_VALUE } from "./constants";
 import {
   AGGREGATION_FNS,
   NONE_AGGREGATION,
@@ -13,7 +14,6 @@ import {
   SORT_TYPES,
   TIME_UNITS,
 } from "./types";
-import { DEFAULT_COLOR_SCHEME, EMPTY_VALUE } from "./constants";
 
 export const BinSchema = z.object({
   binned: z.boolean().optional(),
@@ -45,20 +45,22 @@ export const ColumnFacet = BaseColumnSchema.extend({
 });
 
 export const ChartSchema = z.object({
-  general: z.object({
-    title: z.string().optional(),
-    xColumn: AxisSchema.optional(),
-    yColumn: AxisSchema.optional(),
-    colorByColumn: AxisSchema.optional(),
-    facet: z
-      .object({
-        row: RowFacet,
-        column: ColumnFacet,
-      })
-      .optional(),
-    horizontal: z.boolean().optional(),
-    stacking: z.boolean().optional(),
-  }),
+  general: z
+    .object({
+      title: z.string().optional(),
+      xColumn: AxisSchema.optional(),
+      yColumn: AxisSchema.optional(),
+      colorByColumn: AxisSchema.optional(),
+      facet: z
+        .object({
+          row: RowFacet,
+          column: ColumnFacet,
+        })
+        .optional(),
+      horizontal: z.boolean().optional(),
+      stacking: z.boolean().optional(),
+    })
+    .optional(),
   xAxis: z
     .object({
       label: z.string().optional(),

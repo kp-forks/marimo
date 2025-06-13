@@ -1,22 +1,23 @@
 /* Copyright 2024 Marimo. All rights reserved. */
-import React from "react";
-import { cn } from "@/utils/cn";
-import { Spinner } from "@/components/icons/spinner";
-import {
-  isGitHubCopilotSignedInState,
-  githubCopilotLoadingVersion,
-  copilotSignedInState,
-} from "@/core/codemirror/copilot/state";
+
 import { atom, useAtomValue, useSetAtom } from "jotai";
-import { resolvedMarimoConfigAtom } from "@/core/config/config";
+import React from "react";
+import { useOpenSettingsToTab } from "@/components/app-config/state";
 import { GitHubCopilotIcon } from "@/components/icons/github-copilot";
-import { FooterItem } from "../footer-item";
+import { Spinner } from "@/components/icons/spinner";
+import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/use-toast";
 import { getCopilotClient } from "@/core/codemirror/copilot/client";
-import { Logger } from "@/utils/Logger";
-import { Button } from "@/components/ui/button";
+import {
+  copilotSignedInState,
+  githubCopilotLoadingVersion,
+  isGitHubCopilotSignedInState,
+} from "@/core/codemirror/copilot/state";
+import { resolvedMarimoConfigAtom } from "@/core/config/config";
 import { useOnMount } from "@/hooks/useLifecycle";
-import { useOpenSettingsToTab } from "@/components/app-config/state";
+import { cn } from "@/utils/cn";
+import { Logger } from "@/utils/Logger";
+import { FooterItem } from "../footer-item";
 
 const copilotAtom = atom((get) => {
   return get(resolvedMarimoConfigAtom).completion.copilot;
@@ -33,6 +34,8 @@ export const CopilotStatusIcon: React.FC = () => {
 
   return null;
 };
+
+const logger = Logger.get("[copilot-status-bar]");
 
 const GitHubCopilotStatus: React.FC = () => {
   const isGitHubCopilotSignedIn = useAtomValue(isGitHubCopilotSignedInState);
@@ -53,7 +56,7 @@ const GitHubCopilotStatus: React.FC = () => {
       try {
         // If we fail to initialize, show connection error
         await client.initializePromise.catch((error) => {
-          Logger.error("Copilot#checkConnection: Failed to initialize", error);
+          logger.error("Failed to initialize", error);
           client.close();
           throw error;
         });
@@ -73,7 +76,7 @@ const GitHubCopilotStatus: React.FC = () => {
         if (!mounted) {
           return;
         }
-        Logger.warn("Copilot#checkConnection: Connection failed", error);
+        logger.warn("Connection failed", error);
         setCopilotSignedIn(false);
         setStep("connectionError");
         toast({
@@ -106,6 +109,7 @@ const GitHubCopilotStatus: React.FC = () => {
       }
       selected={false}
       onClick={openSettings}
+      data-testid="footer-copilot-status"
     >
       <span>
         {isLoading ? (

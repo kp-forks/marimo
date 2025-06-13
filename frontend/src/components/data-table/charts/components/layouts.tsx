@@ -1,9 +1,13 @@
 /* Copyright 2024 Marimo. All rights reserved. */
 
-import { AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { AccordionContent } from "@/components/ui/accordion";
-import { cn } from "@/utils/cn";
 import type { LucideProps } from "lucide-react";
+import { ReadonlyCode } from "@/components/editor/code/readonly-python-code";
+import {
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
+import { cn } from "@/utils/cn";
 
 export const Title: React.FC<{ text: string }> = ({ text }) => {
   return <h2 className="font-semibold my-0">{text}</h2>;
@@ -79,5 +83,19 @@ export const AccordionFormContent: React.FC<{
     >
       {children}
     </AccordionContent>
+  );
+};
+
+export const CodeSnippet: React.FC<{
+  code: string;
+  language?: "python" | "sql";
+}> = ({ code, language }) => {
+  return (
+    <ReadonlyCode
+      minHeight="330px"
+      maxHeight="330px"
+      code={code}
+      language={language}
+    />
   );
 };
