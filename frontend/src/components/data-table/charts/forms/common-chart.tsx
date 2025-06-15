@@ -1,33 +1,32 @@
 /* Copyright 2024 Marimo. All rights reserved. */
 
-import { XAxis, YAxis, ColorByAxis, Facet } from "../components/chart-items";
-import { useFormContext, useWatch } from "react-hook-form";
-import { isFieldSet } from "../chart-spec/spec";
-import type { ChartSchema } from "../schemas";
-import type { z } from "zod";
-import {
-  BooleanField,
-  InputField,
-  SliderField,
-  SelectField,
-  ColorArrayField,
-  TooltipSelect,
-} from "../components/form-fields";
-import { Accordion } from "@/components/ui/accordion";
-import { COLOR_SCHEMES, DEFAULT_COLOR_SCHEME } from "../constants";
 import { capitalize } from "lodash-es";
 import { InfoIcon } from "lucide-react";
+import { useFormContext, useWatch } from "react-hook-form";
+import { Accordion } from "@/components/ui/accordion";
+import { isFieldSet } from "../chart-spec/spec";
+import { ColorByAxis, Facet, XAxis, YAxis } from "../components/chart-items";
 import {
+  BooleanField,
+  ColorArrayField,
+  InputField,
+  SelectField,
+  SliderField,
+  TooltipSelect,
+} from "../components/form-fields";
+import {
+  AccordionFormContent,
   AccordionFormItem,
   AccordionFormTrigger,
-  AccordionFormContent,
-  Title,
   FormSectionHorizontalRule,
+  Title,
 } from "../components/layouts";
+import { COLOR_SCHEMES, DEFAULT_COLOR_SCHEME } from "../constants";
 import { useChartFormContext } from "../context";
+import type { ChartSchemaType } from "../schemas";
 
 export const CommonChartForm: React.FC = () => {
-  const form = useFormContext<z.infer<typeof ChartSchema>>();
+  const form = useFormContext<ChartSchemaType>();
 
   const formValues = useWatch({ control: form.control });
   const yColumn = formValues.general?.yColumn;
@@ -130,7 +129,7 @@ export const StyleForm: React.FC = () => {
 export const OtherOptions: React.FC = () => {
   const { saveForm } = useChartFormContext();
 
-  const form = useFormContext<z.infer<typeof ChartSchema>>();
+  const form = useFormContext<ChartSchemaType>();
   const formValues = useWatch({ control: form.control });
   const autoTooltips = formValues.tooltips?.auto;
 

@@ -1,17 +1,12 @@
 /* Copyright 2024 Marimo. All rights reserved. */
-import React from "react";
-import { BoxIcon, HelpCircleIcon } from "lucide-react";
-import { PanelEmptyState } from "./empty-state";
 
-import { useAsyncData } from "@/hooks/useAsyncData";
-import { useResolvedMarimoConfig } from "@/core/config/config";
-import {
-  addPackage,
-  getPackageList,
-  removePackage,
-} from "@/core/network/requests";
-import { ErrorBanner } from "@/plugins/impl/common/error-banner";
+import { useAtomValue, useSetAtom } from "jotai";
+import { BoxIcon, HelpCircleIcon } from "lucide-react";
+import React from "react";
+import { useOpenSettingsToTab } from "@/components/app-config/state";
 import { Spinner } from "@/components/icons/spinner";
+import { SearchInput } from "@/components/ui/input";
+import { Kbd } from "@/components/ui/kbd";
 import {
   Table,
   TableBody,
@@ -20,28 +15,137 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { SearchInput } from "@/components/ui/input";
-import { toast } from "@/components/ui/use-toast";
 import { Tooltip } from "@/components/ui/tooltip";
+import { toast } from "@/components/ui/use-toast";
+import { useResolvedMarimoConfig } from "@/core/config/config";
+import {
+  addPackage,
+  getPackageList,
+  removePackage,
+} from "@/core/network/requests";
+import { isWasm } from "@/core/wasm/utils";
+import { useAsyncData } from "@/hooks/useAsyncData";
+import { ErrorBanner } from "@/plugins/impl/common/error-banner";
 import { cn } from "@/utils/cn";
-import { Kbd } from "@/components/ui/kbd";
-import { Events } from "@/utils/events";
 import { copyToClipboard } from "@/utils/copy";
+import { Events } from "@/utils/events";
 import { PACKAGES_INPUT_ID } from "./constants";
-import { useOpenSettingsToTab } from "@/components/app-config/state";
+import { PanelEmptyState } from "./empty-state";
 import { packagesToInstallAtom } from "./packages-state";
-import { useAtomValue, useSetAtom } from "jotai";
+
+const showAddPackageToast = (packageName: string, error?: string | null) => {
+  if (error) {
+    toast({
+      title: "Failed to add package",
+      description: error,
+      variant: "danger",
+    });
+  } else {
+    toast({
+      title: "Package added",
+      description: (
+        <div>
+          <div>
+            The package <Kbd className="inline">{packageName}</Kbd> and its
+            dependencies has been added to your environment.
+          </div>
+          <div className="text-xs text-muted-foreground mt-1">
+            Some Python packages may require a kernel restart to see changes.
+          </div>
+        </div>
+      ),
+    });
+  }
+};
+
+const showUpgradePackageToast = (
+  packageName: string,
+  error?: string | null,
+) => {
+  if (error) {
+    toast({
+      title: "Failed to upgrade package",
+      description: error,
+      variant: "danger",
+    });
+  } else {
+    toast({
+      title: "Package upgraded",
+      description: (
+        <div>
+          <div>
+            The package <Kbd className="inline">{packageName}</Kbd> has been
+            upgraded.
+          </div>
+          <div className="text-xs text-muted-foreground mt-1">
+            Some Python packages may require a kernel restart to see changes.
+          </div>
+        </div>
+      ),
+    });
+  }
+};
+
+const showRemovePackageToast = (packageName: string, error?: string | null) => {
+  if (error) {
+    toast({
+      title: "Failed to remove package",
+      description: error,
+      variant: "danger",
+    });
+  } else {
+    toast({
+      title: "Package removed",
+      description: (
+        <div>
+          <div>
+            The package <Kbd className="inline">{packageName}</Kbd> has been
+            removed from your environment.
+          </div>
+          <div className="text-xs text-muted-foreground mt-1">
+            Some Python packages may require a kernel restart to see changes.
+          </div>
+        </div>
+      ),
+    });
+  }
+};
+
+const PackageActionButton: React.FC<{
+  onClick: () => void;
+  loading: boolean;
+  children: React.ReactNode;
+  className?: string;
+}> = ({ onClick, loading, children, className }) => {
+  if (loading) {
+    return <Spinner size="small" className="h-4 w-4 shrink-0 opacity-50" />;
+  }
+
+  return (
+    <button
+      type="button"
+      className={cn(
+        "px-2 h-full text-xs text-muted-foreground hover:text-foreground",
+        "invisible group-hover:visible",
+        className,
+      )}
+      onClick={Events.stopPropagation(onClick)}
+    >
+      {children}
+    </button>
+  );
+};
 
 export const PackagesPanel: React.FC = () => {
   const [config] = useResolvedMarimoConfig();
   const packageManager = config.package_management.manager;
-  const { data, loading, error, reload } = useAsyncData(
+  const { data, error, refetch, isPending } = useAsyncData(
     () => getPackageList(),
     [packageManager],
   );
 
   // Only show on the first load
-  if (loading && !data) {
+  if (isPending) {
     return <Spinner size="medium" centered={true} />;
   }
 
@@ -53,8 +157,8 @@ export const PackagesPanel: React.FC = () => {
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
-      <InstallPackageForm packageManager={packageManager} onSuccess={reload} />
-      <PackagesList packages={packages} onSuccess={reload} />
+      <InstallPackageForm packageManager={packageManager} onSuccess={refetch} />
+      <PackagesList packages={packages} onSuccess={refetch} />
     </div>
   );
 };
@@ -83,25 +187,20 @@ const InstallPackageForm: React.FC<{
   const handleAddPackage = async () => {
     try {
       setLoading(true);
-      const response = await addPackage({ package: input });
-      if (response.success) {
-        onSuccess();
-        toast({
-          title: "Package added",
-          description: (
-            <span>
-              The package <Kbd className="inline">{input}</Kbd> and its
-              dependencies has been added to your environment.
-            </span>
-          ),
-        });
-      } else {
-        toast({
-          title: "Failed to add package",
-          description: response.error,
-          variant: "danger",
-        });
+      const packages = input.split(",").map((p) => p.trim());
+      for (const [idx, packageName] of packages.entries()) {
+        const response = await addPackage({ package: packageName });
+        if (response.success) {
+          showAddPackageToast(packageName);
+        } else {
+          showAddPackageToast(packageName, response.error);
+        }
+        // Wait 1s if there are more packages to install
+        if (idx < packages.length - 1) {
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+        }
       }
+      onSuccess();
     } finally {
       setInput("");
       setLoading(false);
@@ -246,13 +345,50 @@ const PackagesList: React.FC<{
           >
             <TableCell>{item.name}</TableCell>
             <TableCell>{item.version}</TableCell>
-            <TableCell>
+            <TableCell className="flex justify-end">
+              <UpgradeButton packageName={item.name} onSuccess={onSuccess} />
               <RemoveButton packageName={item.name} onSuccess={onSuccess} />
             </TableCell>
           </TableRow>
         ))}
       </TableBody>
     </Table>
+  );
+};
+
+const UpgradeButton: React.FC<{
+  packageName: string;
+  onSuccess: () => void;
+}> = ({ packageName, onSuccess }) => {
+  const [loading, setLoading] = React.useState(false);
+
+  // Hide upgrade button in WASM
+  if (isWasm()) {
+    return null;
+  }
+
+  const handleUpgradePackage = async () => {
+    try {
+      setLoading(true);
+      const response = await addPackage({
+        package: packageName,
+        upgrade: true,
+      });
+      if (response.success) {
+        onSuccess();
+        showUpgradePackageToast(packageName);
+      } else {
+        showUpgradePackageToast(packageName, response.error);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <PackageActionButton onClick={handleUpgradePackage} loading={loading}>
+      Upgrade
+    </PackageActionButton>
   );
 };
 
@@ -268,46 +404,18 @@ const RemoveButton: React.FC<{
       const response = await removePackage({ package: packageName });
       if (response.success) {
         onSuccess();
-        toast({
-          title: "Package removed",
-          description: (
-            <span>
-              The package <Kbd className="inline">{packageName}</Kbd> has been
-              removed from your environment.
-            </span>
-          ),
-        });
+        showRemovePackageToast(packageName);
       } else {
-        toast({
-          title: "Failed to add package",
-          description: response.error,
-          variant: "danger",
-        });
+        showRemovePackageToast(packageName, response.error);
       }
     } finally {
       setLoading(false);
     }
   };
 
-  if (loading) {
-    return (
-      <Spinner
-        size="small"
-        className="float-right mr-2 h-4 w-4 shrink-0 opacity-50"
-      />
-    );
-  }
-
   return (
-    <button
-      type="button"
-      className={cn(
-        "float-right px-2 h-full text-xs text-muted-foreground hover:text-foreground",
-        "invisible group-hover:visible",
-      )}
-      onClick={Events.stopPropagation(handleRemovePackage)}
-    >
+    <PackageActionButton onClick={handleRemovePackage} loading={loading}>
       Remove
-    </button>
+    </PackageActionButton>
   );
 };

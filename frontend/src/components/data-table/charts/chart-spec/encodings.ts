@@ -1,30 +1,33 @@
 /* Copyright 2024 Marimo. All rights reserved. */
 
+import type { ColorScheme } from "vega";
+import type { Aggregate } from "vega-lite/build/src/aggregate";
+import type { BinParams } from "vega-lite/build/src/bin";
+import type { ColorDef, OffsetDef } from "vega-lite/build/src/channeldef";
+import type { Scale } from "vega-lite/build/src/scale";
 import type { z } from "zod";
-import type { BinSchema, ChartSchema } from "../schemas";
-
+import { COUNT_FIELD, DEFAULT_COLOR_SCHEME } from "../constants";
+import type { BinSchema, ChartSchemaType } from "../schemas";
 import {
   type AggregationFn,
   BIN_AGGREGATION,
   ChartType,
   NONE_AGGREGATION,
-  STRING_AGGREGATION_FNS,
   type SelectableDataType,
+  STRING_AGGREGATION_FNS,
 } from "../types";
-
 import { isFieldSet } from "./spec";
-import { COUNT_FIELD, DEFAULT_COLOR_SCHEME } from "../constants";
-import type { ColorDef, OffsetDef } from "vega-lite/build/src/channeldef";
 import { convertDataTypeToVega } from "./types";
-import type { ColorScheme } from "vega";
-import type { Aggregate } from "vega-lite/build/src/aggregate";
 
 export function getBinEncoding(
+  chartType: ChartType,
   selectedDataType: SelectableDataType,
   binValues?: z.infer<typeof BinSchema>,
-  chartType?: ChartType,
-) {
+): boolean | BinParams | undefined {
   if (chartType === ChartType.HEATMAP) {
+    if (!binValues?.maxbins) {
+      return undefined;
+    }
     return { maxbins: binValues?.maxbins };
   }
 
@@ -37,28 +40,42 @@ export function getBinEncoding(
     return undefined;
   }
 
-  return { bin: true, step: binValues.step, maxbins: binValues.maxbins };
+  const binParams: BinParams = {};
+  if (binValues.step) {
+    binParams.step = binValues.step;
+  }
+  if (binValues.maxbins) {
+    binParams.maxbins = binValues.maxbins;
+  }
+
+  if (Object.keys(binParams).length === 0) {
+    return true;
+  }
+
+  return binParams;
 }
 
-export function getColorInScale(formValues: z.infer<typeof ChartSchema>) {
+export function getColorInScale(
+  formValues: ChartSchemaType,
+): Scale | undefined {
   const colorRange = formValues.color?.range;
   if (colorRange?.length) {
     return { range: colorRange };
   }
 
   const scheme = formValues.color?.scheme;
-  return scheme === DEFAULT_COLOR_SCHEME
-    ? undefined
-    : { scheme: scheme as ColorScheme };
+  if (scheme && scheme !== DEFAULT_COLOR_SCHEME) {
+    return { scheme: scheme as ColorScheme };
+  }
 }
 
 export function getColorEncoding(
   chartType: ChartType,
-  formValues: z.infer<typeof ChartSchema>,
-): { color?: ColorDef<string> } | undefined {
+  formValues: ChartSchemaType,
+): ColorDef<string> | undefined {
   if (
     chartType === ChartType.PIE ||
-    !isFieldSet(formValues.general.colorByColumn?.field)
+    !isFieldSet(formValues.general?.colorByColumn?.field)
   ) {
     return undefined;
   }
@@ -66,10 +83,8 @@ export function getColorEncoding(
   const colorByColumn = formValues.general.colorByColumn;
   if (colorByColumn.field === COUNT_FIELD) {
     return {
-      color: {
-        aggregate: "count",
-        type: "quantitative",
-      },
+      aggregate: "count",
+      type: "quantitative",
     };
   }
 
@@ -78,29 +93,27 @@ export function getColorEncoding(
   const aggregate = formValues.general.colorByColumn.aggregate;
 
   return {
-    color: {
-      field: colorByColumn.field,
-      type: convertDataTypeToVega(selectedDataType),
-      scale: getColorInScale(formValues),
-      aggregate: getAggregate(aggregate, selectedDataType),
-      bin: getBinEncoding(selectedDataType, colorBin, chartType),
-    },
+    field: colorByColumn.field,
+    type: convertDataTypeToVega(selectedDataType),
+    scale: getColorInScale(formValues),
+    aggregate: getAggregate(aggregate, selectedDataType),
+    bin: getBinEncoding(chartType, selectedDataType, colorBin),
   };
 }
 
 export function getOffsetEncoding(
   chartType: ChartType,
-  formValues: z.infer<typeof ChartSchema>,
+  formValues: ChartSchemaType,
 ): OffsetDef<string> | undefined {
   // Offset only applies to bar charts, to unstack them
   if (
-    formValues.general.stacking ||
-    !isFieldSet(formValues.general.colorByColumn?.field) ||
+    formValues.general?.stacking ||
+    !isFieldSet(formValues.general?.colorByColumn?.field) ||
     chartType !== ChartType.BAR
   ) {
     return undefined;
   }
-  return { field: formValues.general.colorByColumn?.field };
+  return { field: formValues.general?.colorByColumn?.field };
 }
 
 export function getAggregate(
