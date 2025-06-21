@@ -1,9 +1,9 @@
 /* Copyright 2024 Marimo. All rights reserved. */
 "use no memo";
+
 // tanstack/table is not compatible with React compiler
 // https://github.com/TanStack/table/issues/5567
 
-import React, { memo } from "react";
 import {
   type ColumnDef,
   type ColumnFiltersState,
@@ -18,25 +18,28 @@ import {
   type SortingState,
   useReactTable,
 } from "@tanstack/react-table";
+import React, { memo } from "react";
 
 import { Table } from "@/components/ui/table";
-import type { DownloadActionProps } from "./download-actions";
+import type { GetRowIds } from "@/plugins/impl/DataTablePlugin";
 import { cn } from "@/utils/cn";
-import { FilterPills } from "./filter-pills";
-import { useColumnPinning } from "./hooks/useColumnPinning";
-import { renderTableHeader, renderTableBody } from "./renderers";
-import { SearchBar } from "./SearchBar";
-import { TableActions } from "./TableActions";
-import { ColumnFormattingFeature } from "./column-formatting/feature";
-import { ColumnWrappingFeature } from "./column-wrapping/feature";
-import type { DataTableSelection } from "./types";
+import type { PanelType } from "../editor/chrome/panels/context-aware-panel/context-aware-panel";
 import { CellSelectionFeature } from "./cell-selection/feature";
 import type { CellSelectionState } from "./cell-selection/types";
-import type { GetRowIds } from "@/plugins/impl/DataTablePlugin";
 import { CellStylingFeature } from "./cell-styling/feature";
 import type { CellStyleState } from "./cell-styling/types";
+import { ColumnFormattingFeature } from "./column-formatting/feature";
+import { ColumnWrappingFeature } from "./column-wrapping/feature";
 import { CopyColumnFeature } from "./copy-column/feature";
+import type { DownloadActionProps } from "./download-actions";
+import { FilterPills } from "./filter-pills";
 import { FocusRowFeature } from "./focus-row/feature";
+import { useColumnPinning } from "./hooks/use-column-pinning";
+import { CellSelectionProvider } from "./range-focus/provider";
+import { DataTableBody, renderTableHeader } from "./renderers";
+import { SearchBar } from "./SearchBar";
+import { TableActions } from "./TableActions";
+import type { DataTableSelection, TooManyRows } from "./types";
 import { getStableRowId } from "./utils";
 
 interface DataTableProps<TData> extends Partial<DownloadActionProps> {
@@ -49,7 +52,7 @@ interface DataTableProps<TData> extends Partial<DownloadActionProps> {
   sorting?: SortingState; // controlled sorting
   setSorting?: OnChangeFn<SortingState>; // controlled sorting
   // Pagination
-  totalRows: number | "too_many";
+  totalRows: number | TooManyRows;
   totalColumns: number;
   pagination?: boolean;
   manualPagination?: boolean; // server-side pagination
@@ -75,12 +78,13 @@ interface DataTableProps<TData> extends Partial<DownloadActionProps> {
   freezeColumnsLeft?: string[];
   freezeColumnsRight?: string[];
   toggleDisplayHeader?: () => void;
-  // Focus row
-  onFocusRowChange?: OnChangeFn<number>;
+  // Row viewer panel
+  viewedRowIdx?: number;
+  onViewedRowChange?: OnChangeFn<number>;
   // Others
   chartsFeatureEnabled?: boolean;
-  toggleRowViewerPanel?: () => void;
-  isRowViewerPanelOpen?: boolean;
+  togglePanel?: (panelType: PanelType) => void;
+  isPanelOpen?: (panelType: PanelType) => boolean;
 }
 
 const DataTableInternal = <TData,>({
@@ -116,9 +120,10 @@ const DataTableInternal = <TData,>({
   freezeColumnsRight,
   toggleDisplayHeader,
   chartsFeatureEnabled,
-  toggleRowViewerPanel,
-  isRowViewerPanelOpen,
-  onFocusRowChange,
+  togglePanel,
+  isPanelOpen,
+  viewedRowIdx,
+  onViewedRowChange,
 }: DataTableProps<TData>) => {
   const [isSearchEnabled, setIsSearchEnabled] = React.useState<boolean>(false);
 
@@ -191,7 +196,7 @@ const DataTableInternal = <TData,>({
     onColumnPinningChange: setColumnPinning,
     // focus row
     enableFocusRow: true,
-    onFocusRowChange: onFocusRowChange,
+    onFocusRowChange: onViewedRowChange,
     // state
     state: {
       ...(sorting ? { sorting } : {}),
@@ -211,6 +216,8 @@ const DataTableInternal = <TData,>({
     },
   });
 
+  const rowViewerPanelOpen = isPanelOpen?.("row-viewer") ?? false;
+
   return (
     <div className={cn(wrapperClassName, "flex flex-col space-y-1")}>
       <FilterPills filters={filters} table={table} />
@@ -226,12 +233,15 @@ const DataTableInternal = <TData,>({
         )}
         <Table>
           {renderTableHeader(table)}
-          {renderTableBody(
-            table,
-            columns,
-            isRowViewerPanelOpen,
-            getPaginatedRowIndex,
-          )}
+          <CellSelectionProvider>
+            <DataTableBody
+              table={table}
+              columns={columns}
+              rowViewerPanelOpen={rowViewerPanelOpen}
+              getRowIndex={getPaginatedRowIndex}
+              viewedRowIdx={viewedRowIdx}
+            />
+          </CellSelectionProvider>
         </Table>
       </div>
       <TableActions
@@ -248,8 +258,8 @@ const DataTableInternal = <TData,>({
         getRowIds={getRowIds}
         toggleDisplayHeader={toggleDisplayHeader}
         chartsFeatureEnabled={chartsFeatureEnabled}
-        toggleRowViewerPanel={toggleRowViewerPanel}
-        isRowViewerPanelOpen={isRowViewerPanelOpen}
+        togglePanel={togglePanel}
+        isPanelOpen={isPanelOpen}
       />
     </div>
   );

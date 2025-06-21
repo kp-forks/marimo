@@ -1,9 +1,9 @@
 /* Copyright 2024 Marimo. All rights reserved. */
 import { IslandsPyodideBridge } from "../islands/bridge";
 import { isIslands } from "../islands/utils";
+import { isStaticNotebook } from "../static/static-state";
 import { PyodideBridge } from "../wasm/bridge";
 import { isWasm } from "../wasm/utils";
-import { isStaticNotebook } from "../static/static-state";
 import { createNetworkRequests } from "./requests-network";
 import { createStaticRequests } from "./requests-static";
 import { createErrorToastingRequests } from "./requests-toasting";
@@ -27,6 +27,7 @@ function getRequest(): EditRequests & RunRequests {
 
 export const {
   sendComponentValues,
+  sendModelValue,
   sendRename,
   sendRestart,
   syncCellIds,
@@ -74,6 +75,7 @@ export const {
   addPackage,
   removePackage,
   getPackageList,
+  getDependencyTree,
   listSecretKeys,
   writeSecret,
 } = getRequest();

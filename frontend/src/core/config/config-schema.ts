@@ -1,13 +1,8 @@
 /* Copyright 2024 Marimo. All rights reserved. */
 import { z } from "zod";
-import { Logger } from "@/utils/Logger";
-import {
-  getMarimoAppConfig,
-  getMarimoConfigOverrides,
-  getMarimoUserConfig,
-} from "../dom/marimo-tag";
-import type { MarimoConfig } from "../network/types";
 import { invariant } from "@/utils/invariant";
+import { Logger } from "@/utils/Logger";
+import type { MarimoConfig } from "../network/types";
 
 // This has to be defined in the same file as the zod schema to satisfy zod
 export const PackageManagerNames = [
@@ -128,6 +123,7 @@ export const UserConfigSchema = z
     ai: z
       .object({
         rules: z.string().default(""),
+        mode: z.enum(["manual", "ask"]).default("manual"),
         open_ai: z
           .object({
             api_key: z.string().optional(),
@@ -143,6 +139,14 @@ export const UserConfigSchema = z
         google: z
           .object({
             api_key: z.string().optional(),
+          })
+          .optional(),
+        bedrock: z
+          .object({
+            region_name: z.string().optional(),
+            profile_name: z.string().optional(),
+            aws_access_key_id: z.string().optional(),
+            aws_secret_access_key: z.string().optional(),
           })
           .optional(),
       })
@@ -172,6 +176,7 @@ export const UserConfigSchema = z
     server: {},
     ai: {
       rules: "",
+      mode: "manual",
       open_ai: {},
     },
   });
@@ -205,9 +210,9 @@ export const AppConfigSchema = z
   .default({ width: "medium", auto_download: [] });
 export type AppConfig = z.infer<typeof AppConfigSchema>;
 
-export function parseAppConfig() {
+export function parseAppConfig(config: unknown) {
   try {
-    return AppConfigSchema.parse(getMarimoAppConfig());
+    return AppConfigSchema.parse(config);
   } catch (error) {
     Logger.error(
       `Marimo got an unexpected value in the configuration file: ${error}`,
@@ -216,9 +221,9 @@ export function parseAppConfig() {
   }
 }
 
-export function parseUserConfig(): UserConfig {
+export function parseUserConfig(config: unknown): UserConfig {
   try {
-    const parsed = UserConfigSchema.parse(getMarimoUserConfig());
+    const parsed = UserConfigSchema.parse(config);
     for (const [key, value] of Object.entries(parsed.experimental)) {
       if (value === true) {
         Logger.log(`🧪 Experimental feature "${key}" is enabled.`);
@@ -233,9 +238,9 @@ export function parseUserConfig(): UserConfig {
   }
 }
 
-export function parseConfigOverrides(): {} {
+export function parseConfigOverrides(config: unknown): {} {
   try {
-    const overrides = getMarimoConfigOverrides() as {};
+    const overrides = config as {};
     invariant(
       typeof overrides === "object",
       "internal-error: marimo-config-overrides is not an object",

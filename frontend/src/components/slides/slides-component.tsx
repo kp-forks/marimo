@@ -1,17 +1,17 @@
 /* Copyright 2024 Marimo. All rights reserved. */
 
-import React, { type PropsWithChildren, useEffect } from "react";
-import { Swiper, SwiperSlide, type SwiperRef } from "swiper/react";
+import React, { type JSX, type PropsWithChildren, useEffect } from "react";
 import {
-  Virtual,
   Keyboard,
-  Pagination,
-  Zoom,
   Navigation,
+  Pagination,
+  Virtual,
+  Zoom,
 } from "swiper/modules";
+import { Swiper, type SwiperRef, SwiperSlide } from "swiper/react";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/utils/cn";
 import { useEventListener } from "@/hooks/useEventListener";
+import { cn } from "@/utils/cn";
 
 import "./slides.css";
 import "swiper/css";
@@ -104,8 +104,7 @@ const SlidesComponent = ({
                 isFullscreen ? "p-20" : "p-6",
               )}
             >
-              {/* this centers the contents */}
-              <div className="m-auto max-w-full">{child}</div>
+              <div className="mo-slide-content">{child}</div>
             </div>
           </SwiperSlide>
         );

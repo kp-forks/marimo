@@ -1,12 +1,16 @@
 /* Copyright 2024 Marimo. All rights reserved. */
-import React from "react";
-import { Button } from "@/components/ui/button";
-import { useChromeActions } from "@/components/editor/chrome/state";
-import { packagesToInstallAtom } from "@/components/editor/chrome/panels/packages-state";
+
 import { useSetAtom } from "jotai";
+import React from "react";
+import { packagesToInstallAtom } from "@/components/editor/chrome/panels/packages-state";
+import { useChromeActions } from "@/components/editor/chrome/state";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/utils/cn";
 
 interface InstallPackageButtonProps {
   packages: string[] | undefined;
+  showMaxPackages?: number;
+  className?: string;
 }
 
 /**
@@ -15,6 +19,8 @@ interface InstallPackageButtonProps {
  */
 export const InstallPackageButton: React.FC<InstallPackageButtonProps> = ({
   packages,
+  showMaxPackages,
+  className,
 }) => {
   const chromeActions = useChromeActions();
   const setPackagesToInstall = useSetAtom(packagesToInstallAtom);
@@ -30,12 +36,20 @@ export const InstallPackageButton: React.FC<InstallPackageButtonProps> = ({
     setPackagesToInstall(packagesString);
 
     // Open the packages panel
-    chromeActions.toggleApplication("packages");
+    chromeActions.openApplication("packages");
   };
 
   return (
-    <Button variant="outline" size="xs" onClick={handleClick} className="ml-2">
-      Install {packages.join(", ")}
+    <Button
+      variant="outline"
+      size="xs"
+      onClick={handleClick}
+      className={cn("ml-2", className)}
+    >
+      Install{" "}
+      {showMaxPackages
+        ? packages.slice(0, showMaxPackages).join(", ")
+        : packages.join(", ")}
     </Button>
   );
 };

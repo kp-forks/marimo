@@ -3,8 +3,7 @@
 
 import type { Column } from "@tanstack/react-table";
 import { FilterIcon, MinusIcon, SearchIcon, XIcon } from "lucide-react";
-
-import { cn } from "@/utils/cn";
+import { useMemo, useRef, useState } from "react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -16,30 +15,14 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Button } from "../ui/button";
-import { useMemo, useRef, useState } from "react";
-import { NumberField } from "../ui/number-field";
-import { Input } from "../ui/input";
-import { type ColumnFilterForType, Filter } from "./filters";
-import { logNever } from "@/utils/assertNever";
-import {
-  renderColumnPinning,
-  renderColumnWrapping,
-  renderCopyColumn,
-  renderDataType,
-  renderFormatOptions,
-  renderSortFilterIcon,
-  renderSorts,
-  FilterButtons,
-  ClearFilterMenuItem,
-  renderFilterByValues,
-} from "./header-items";
-import type { CalculateTopKRows } from "@/plugins/impl/DataTablePlugin";
 import { useAsyncData } from "@/hooks/useAsyncData";
 import { ErrorBanner } from "@/plugins/impl/common/error-banner";
-import { Spinner } from "../icons/spinner";
-import { PopoverClose } from "../ui/popover";
+import type { CalculateTopKRows } from "@/plugins/impl/DataTablePlugin";
+import { logNever } from "@/utils/assertNever";
+import { cn } from "@/utils/cn";
 import { Logger } from "@/utils/Logger";
+import { Spinner } from "../icons/spinner";
+import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
 import {
   Command,
@@ -49,6 +32,23 @@ import {
   CommandList,
 } from "../ui/command";
 import { DraggablePopover } from "../ui/draggable-popover";
+import { Input } from "../ui/input";
+import { NumberField } from "../ui/number-field";
+import { PopoverClose } from "../ui/popover";
+import { type ColumnFilterForType, Filter } from "./filters";
+import {
+  ClearFilterMenuItem,
+  FilterButtons,
+  renderColumnPinning,
+  renderColumnWrapping,
+  renderCopyColumn,
+  renderDataType,
+  renderFilterByValues,
+  renderFormatOptions,
+  renderSortFilterIcon,
+  renderSorts,
+} from "./header-items";
+import { renderUnknownValue } from "./renderers";
 
 const TOP_K_ROWS = 30;
 
@@ -376,7 +376,7 @@ const PopoverFilterByValues = <TData, TValue>({
   const [chosenValues, setChosenValues] = useState<Set<unknown>>(new Set());
   const [query, setQuery] = useState<string>("");
 
-  const { data, loading, error } = useAsyncData(async () => {
+  const { data, isPending, error } = useAsyncData(async () => {
     if (!calculateTopKRows) {
       return null;
     }
@@ -405,7 +405,7 @@ const PopoverFilterByValues = <TData, TValue>({
 
   let dataTable: React.ReactNode;
 
-  if (loading) {
+  if (isPending) {
     dataTable = <Spinner size="medium" className="mx-auto mt-12 mb-10" />;
   }
 
@@ -475,10 +475,12 @@ const PopoverFilterByValues = <TData, TValue>({
             )}
             {filteredData.map(([value, count], rowIndex) => {
               const isSelected = chosenValues.has(value);
+              const valueString = renderUnknownValue({ value });
+
               return (
                 <CommandItem
                   key={rowIndex}
-                  value={String(value)}
+                  value={valueString}
                   className="[&:not(:last-child)]:border-b rounded-none px-3"
                   onSelect={() => handleToggle(value)}
                 >
@@ -488,7 +490,7 @@ const PopoverFilterByValues = <TData, TValue>({
                     className="mr-3 h-3.5 w-3.5"
                   />
                   <span className="flex-1 overflow-hidden max-h-20 line-clamp-3">
-                    {String(value)}
+                    {valueString}
                   </span>
                   <span className="ml-3">{count}</span>
                 </CommandItem>

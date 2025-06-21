@@ -1,6 +1,8 @@
 /* Copyright 2024 Marimo. All rights reserved. */
 import { type Plugin, defineConfig } from "vite";
 import fs from "node:fs";
+import wasm from "vite-plugin-wasm";
+import topLevelAwait from "vite-plugin-top-level-await";
 import path from "node:path";
 import react from "@vitejs/plugin-react";
 import tsconfigPaths from "vite-tsconfig-paths";
@@ -22,7 +24,7 @@ const htmlDevPlugin = (): Plugin => {
 };
 
 const ReactCompilerConfig = {
-  target: "18",
+  target: "19",
 };
 
 // https://vitejs.dev/config/
@@ -65,6 +67,8 @@ export default defineConfig({
       },
     }),
     tsconfigPaths(),
+    wasm(),
+    topLevelAwait(),
   ],
   build: {
     emptyOutDir: true,

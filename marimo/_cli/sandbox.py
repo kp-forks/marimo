@@ -20,6 +20,7 @@ from marimo._utils.inline_script_metadata import (
     PyProjectReader,
     is_marimo_dependency,
 )
+from marimo._utils.uv import find_uv_bin
 from marimo._utils.versions import is_editable
 
 LOGGER = _loggers.marimo_logger()
@@ -32,6 +33,9 @@ def maybe_prompt_run_in_sandbox(name: str | None) -> bool:
         return False
 
     if name is None:
+        return False
+
+    if Path(name).is_dir():
         return False
 
     pyproject = PyProjectReader.from_filename(name)
@@ -124,6 +128,38 @@ def _normalize_sandbox_dependencies(
     return filtered + [include_features(chosen, additional_features)]
 
 
+def _uv_export_script_requirements_txt(
+    name: str | None,
+) -> list[str]:
+    if not name:
+        return []
+
+    result = subprocess.run(
+        [
+            find_uv_bin(),
+            "export",
+            "--no-hashes",
+            "--no-annotate",
+            "--no-header",
+            "--script",
+            name,
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout.split("\n")
+
+
+def _resolve_requirements_txt_lines(pyproject: PyProjectReader) -> list[str]:
+    if pyproject.name and pyproject.name.endswith(".py"):
+        try:
+            return _uv_export_script_requirements_txt(pyproject.name)
+        except subprocess.CalledProcessError:
+            pass  # Fall back if uv fails
+    return pyproject.requirements_txt_lines
+
+
 def get_marimo_dir() -> Path:
     return Path(__file__).parent.parent.parent
 
@@ -137,7 +173,7 @@ def construct_uv_flags(
     # NB. Used in quarto plugin
 
     # If name if a filepath, parse the dependencies from the file
-    dependencies = pyproject.requirements_txt_lines
+    dependencies = _resolve_requirements_txt_lines(pyproject)
 
     # If there are no dependencies, which can happen for marimo new or
     # on marimo edit a_new_file.py, uv may use a cached venv, even though
@@ -149,9 +185,6 @@ def construct_uv_flags(
     dependencies = _normalize_sandbox_dependencies(
         dependencies, __version__, additional_features
     )
-
-    # Add additional dependencies
-    dependencies.extend(additional_deps)
 
     temp_file.write("\n".join(dependencies))
 
@@ -166,6 +199,10 @@ def construct_uv_flags(
         "--with-requirements",
         temp_file.name,
     ]
+
+    # Layer additional deps on top of the requirements
+    if len(additional_deps) > 0:
+        uv_flags.extend(["--with", ",".join(additional_deps)])
 
     # Add refresh
     if uv_needs_refresh:
@@ -213,7 +250,7 @@ def construct_uv_command(
         else PyProjectReader({}, config_path=None)
     )
 
-    uv_cmd = ["uv", "run"]
+    uv_cmd = [find_uv_bin(), "run"]
     with tempfile.NamedTemporaryFile(
         mode="w", delete=False, suffix=".txt", encoding="utf-8"
     ) as temp_file:
@@ -238,8 +275,10 @@ def run_in_sandbox(
     additional_features: Optional[list[DepFeatures]] = None,
     additional_deps: Optional[list[str]] = None,
 ) -> int:
-    if not DependencyManager.which("uv"):
+    # If we fall back to the plain "uv" path, ensure it's actually on the system
+    if find_uv_bin() == "uv" and not DependencyManager.which("uv"):
         raise click.UsageError("uv must be installed to use --sandbox")
+
     uv_cmd = construct_uv_command(
         args, name, additional_features or [], additional_deps or []
     )

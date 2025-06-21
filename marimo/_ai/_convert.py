@@ -2,17 +2,20 @@
 from __future__ import annotations
 
 import base64
-from typing import TYPE_CHECKING, Any
+import json
+from typing import TYPE_CHECKING, Any, Literal
 
 from marimo._ai._types import ChatMessage
+from marimo._server.ai.tools import Tool
 
 if TYPE_CHECKING:
-    from google.generativeai.types import (  # type: ignore[import-not-found]
-        ContentDict,
-        PartType,
+    from google.genai.types import (  # type: ignore[import-not-found]
+        Content,
+        Part,
     )
 
 
+# Message conversions
 def convert_to_openai_messages(
     messages: list[ChatMessage],
 ) -> list[dict[Any, Any]]:
@@ -126,21 +129,23 @@ def convert_to_groq_messages(
 
 def convert_to_google_messages(
     messages: list[ChatMessage],
-) -> list[ContentDict]:
-    google_messages: list[ContentDict] = []
+) -> list[Content]:
+    google_messages: list[Content] = []
 
     for message in messages:
-        parts: list[PartType] = [str(message.content)]
+        parts: list[Part] = [{"text": str(message.content)}]
         if message.attachments:
             for attachment in message.attachments:
                 content_type = attachment.content_type or "text/plain"
 
                 parts.append(
                     {
-                        "mime_type": content_type,
-                        "data": base64.b64decode(
-                            _extract_data(attachment.url)
-                        ),
+                        "inline_data": {
+                            "mime_type": content_type,
+                            "data": base64.b64decode(
+                                _extract_data(attachment.url)
+                            ),
+                        },
                     }
                 )
 
@@ -168,3 +173,98 @@ def _extract_data(url: str) -> str:
         return url.split(",")[1]
     else:
         return url
+
+
+def convert_to_ai_sdk_messages(
+    content_text: str | dict[str, Any],
+    content_type: Literal[
+        "text",
+        "reasoning",
+        "tool_call_start",
+        "tool_call_delta",
+        "tool_call_end",
+        "tool_result",
+        "finish_reason",
+    ],
+) -> str:
+    """
+    Format text events for the AI SDK stream protocol.
+    See: https://ai-sdk.dev/docs/ai-sdk-ui/stream-protocol
+    """
+    TEXT_PREFIX = "0:"
+    REASON_PREFIX = "g:"
+    TOOL_CALL_START_PREFIX = "b:"
+    TOOL_CALL_DELTA_PREFIX = "c:"
+    TOOL_CALL_PREFIX = "9:"
+    TOOL_RESULT_PREFIX = "a:"
+    FINISH_REASON_PREFIX = "d:"
+
+    # Text events
+    if content_type == "text" and isinstance(content_text, str):
+        return f"{TEXT_PREFIX}{json.dumps(content_text)}\n"
+    elif content_type == "reasoning" and isinstance(content_text, str):
+        return f"{REASON_PREFIX}{json.dumps(content_text)}\n"
+
+    # Tool use events
+    elif content_type == "tool_call_start" and isinstance(content_text, dict):
+        return f"{TOOL_CALL_START_PREFIX}{json.dumps(content_text)}\n"
+    elif content_type == "tool_call_delta" and isinstance(content_text, dict):
+        return f"{TOOL_CALL_DELTA_PREFIX}{json.dumps(content_text)}\n"
+    elif content_type == "tool_call_end" and isinstance(content_text, dict):
+        return f"{TOOL_CALL_PREFIX}{json.dumps(content_text)}\n"
+    elif content_type == "tool_result" and isinstance(content_text, dict):
+        return f"{TOOL_RESULT_PREFIX}{json.dumps(content_text)}\n"
+
+    # Other events
+    elif content_type == "finish_reason" and content_text in [
+        "tool_calls",
+        "stop",
+    ]:
+        # Emit the finishReason as a JSON object with usage (default 0s)
+        # TODO: Add usage (promptTokens, completionTokens)
+        return f'{FINISH_REASON_PREFIX}{{"finishReason": "{content_text}", "usage": {{"promptTokens": 0, "completionTokens": 0}}}}\n'
+
+    else:
+        # Default to text for unknown types
+        return f"{TEXT_PREFIX}{json.dumps(content_text)}\n"
+
+
+# Tool conversions
+def convert_to_openai_tools(tools: list[Tool]) -> list[dict[str, Any]]:
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": tool.name,
+                "description": tool.description,
+                "parameters": tool.parameters,
+            },
+        }
+        for tool in tools
+    ]
+
+
+def convert_to_anthropic_tools(tools: list[Tool]) -> list[dict[str, Any]]:
+    return [
+        {
+            "name": tool.name,
+            "description": tool.description,
+            "input_schema": tool.parameters,
+        }
+        for tool in tools
+    ]
+
+
+def convert_to_google_tools(tools: list[Tool]) -> list[dict[str, Any]]:
+    return [
+        {
+            "function_declarations": [
+                {
+                    "name": tool.name,
+                    "description": tool.description,
+                    "parameters": tool.parameters,
+                }
+            ]
+        }
+        for tool in tools
+    ]

@@ -1,14 +1,17 @@
 /* Copyright 2024 Marimo. All rights reserved. */
-import { expect, test } from "vitest";
+
 import { createStore } from "jotai";
+import { expect, test } from "vitest";
+import {
+  configOverridesAtom,
+  resolvedMarimoConfigAtom,
+  userConfigAtom,
+} from "../config";
 import {
   AppConfigSchema,
   type UserConfig,
   UserConfigSchema,
 } from "../config-schema";
-import { resolvedMarimoConfigAtom } from "../config";
-import { userConfigAtom } from "../config";
-import { configOverridesAtom } from "../config";
 
 test("default AppConfig", () => {
   const defaultConfig = AppConfigSchema.parse({});
@@ -41,6 +44,7 @@ test("default UserConfig - empty", () => {
   expect(defaultConfig).toMatchInlineSnapshot(`
     {
       "ai": {
+        "mode": "manual",
         "rules": "",
       },
       "completion": {
@@ -96,6 +100,7 @@ test("default UserConfig - one level", () => {
   expect(defaultConfig).toMatchInlineSnapshot(`
     {
       "ai": {
+        "mode": "manual",
         "rules": "",
       },
       "completion": {

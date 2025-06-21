@@ -1,6 +1,11 @@
 /* Copyright 2024 Marimo. All rights reserved. */
+
+import type { Message as AIMessage } from "@ai-sdk/react";
 import { atom } from "jotai";
+import { atomWithStorage } from "jotai/utils";
 import type { CellId } from "../cells/ids";
+
+const KEY = "marimo:ai:chatState:v2";
 
 export const aiCompletionCellAtom = atom<{
   cellId: CellId;
@@ -12,6 +17,7 @@ export interface Message {
   role: "user" | "assistant" | "data" | "system";
   content: string;
   timestamp: number;
+  parts?: AIMessage["parts"];
 }
 
 export interface Chat {
@@ -27,7 +33,7 @@ export interface ChatState {
   activeChatId: string | null;
 }
 
-export const chatStateAtom = atom<ChatState>({
+export const chatStateAtom = atomWithStorage<ChatState>(KEY, {
   chats: [],
   activeChatId: null,
 });

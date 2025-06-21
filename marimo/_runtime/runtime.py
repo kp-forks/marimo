@@ -90,6 +90,7 @@ from marimo._messaging.types import (
 from marimo._output.rich_help import mddoc
 from marimo._plugins.core.web_component import JSONType
 from marimo._plugins.ui._core.ui_element import MarimoConvertValueException
+from marimo._plugins.ui._impl.anywidget.init import WIDGET_COMM_MANAGER
 from marimo._runtime import dataflow, handlers, marimo_pdb, patches
 from marimo._runtime.app_meta import AppMeta
 from marimo._runtime.context import (
@@ -104,10 +105,17 @@ from marimo._runtime.context.kernel_context import (
 from marimo._runtime.context.types import teardown_context
 from marimo._runtime.control_flow import MarimoInterrupt
 from marimo._runtime.input_override import input_override
+from marimo._runtime.packages.import_error_extractors import (
+    extract_missing_module_from_cause_chain,
+    try_extract_packages_from_import_error_message,
+)
 from marimo._runtime.packages.module_registry import ModuleRegistry
 from marimo._runtime.packages.package_manager import PackageManager
 from marimo._runtime.packages.package_managers import create_package_manager
-from marimo._runtime.packages.utils import is_python_isolated
+from marimo._runtime.packages.utils import (
+    PackageRequirement,
+    is_python_isolated,
+)
 from marimo._runtime.params import CLIArgs, QueryParams
 from marimo._runtime.redirect_streams import redirect_streams
 from marimo._runtime.reload.autoreload import ModuleReloader
@@ -133,6 +141,7 @@ from marimo._runtime.requests import (
     RefreshSecretsRequest,
     RenameRequest,
     SetCellConfigRequest,
+    SetModelMessageRequest,
     SetUIElementValueRequest,
     SetUserConfigRequest,
     StopRequest,
@@ -164,7 +173,7 @@ from marimo._secrets.load_dotenv import (
 from marimo._secrets.secrets import get_secret_keys
 from marimo._server.model import SessionMode
 from marimo._server.types import QueueType
-from marimo._sql.engines.types import SQLEngine
+from marimo._sql.engines.types import EngineCatalog
 from marimo._sql.get_engines import (
     engine_to_data_source_connection,
     get_engines_from_variables,
@@ -2053,6 +2062,15 @@ class Kernel:
         async def handle_rename(request: RenameRequest) -> None:
             await self.rename_file(request.filename)
 
+        async def handle_receive_model_message(
+            request: SetModelMessageRequest,
+        ) -> None:
+            buffers = request.buffers or []
+            buffers_as_bytes = [buffer.encode("utf-8") for buffer in buffers]
+            WIDGET_COMM_MANAGER.receive_comm_message(
+                request.model_id, request.message, buffers_as_bytes
+            )
+
         async def handle_function_call(request: FunctionCallRequest) -> None:
             status, ret, _ = await self.function_call_request(request)
             LOGGER.debug("Function returned with status %s", status)
@@ -2090,6 +2108,7 @@ class Kernel:
         handler.register(RenameRequest, handle_rename)
         handler.register(SetCellConfigRequest, self.set_cell_config)
         handler.register(SetUIElementValueRequest, handle_set_ui_element_value)
+        handler.register(SetModelMessageRequest, handle_receive_model_message)
         handler.register(SetUserConfigRequest, handle_set_user_config)
         handler.register(StopRequest, handle_stop)
         # Datasets
@@ -2208,10 +2227,12 @@ class DatasetCallbacks:
             ).broadcast()
         return
 
-    def _get_sql_engine(
+    def _get_engine_catalog(
         self, variable_name: str
-    ) -> tuple[Optional[SQLEngine], Optional[str]]:
-        """Find the SQL engine associated with the given variable name. Returns the engine and the error message if any."""
+    ) -> tuple[Optional[EngineCatalog[Any]], Optional[str]]:
+        """Fetch the catalog-capable engine associated with the given variable name.
+
+        Returns the engine if it supports catalog operations, or an error message if not."""
         variable_name = cast(VariableName, variable_name)
 
         try:
@@ -2220,7 +2241,11 @@ class DatasetCallbacks:
             engines = get_engines_from_variables([(variable_name, engine_val)])
             if engines is None or len(engines) == 0:
                 return None, "Engine not found"
-            return engines[0][1], None
+            engine = engines[0][1]
+            if isinstance(engine, EngineCatalog):
+                return engine, None
+            else:
+                return None, "Connection does not support catalog operations"
         except Exception as e:
             LOGGER.warning(
                 "Failed to get engine %s", variable_name, exc_info=e
@@ -2243,7 +2268,7 @@ class DatasetCallbacks:
         schema_name = request.schema
         table_name = request.table_name
 
-        engine, error = self._get_sql_engine(variable_name)
+        engine, error = self._get_engine_catalog(variable_name)
         if error is not None or engine is None:
             SQLTablePreview(
                 request_id=request.request_id, table=None, error=error
@@ -2288,7 +2313,7 @@ class DatasetCallbacks:
         database_name = request.database
         schema_name = request.schema
 
-        engine, error = self._get_sql_engine(variable_name)
+        engine, error = self._get_engine_catalog(variable_name)
         if error is not None or engine is None:
             SQLTableListPreview(
                 request_id=request.request_id, tables=[], error=error
@@ -2320,7 +2345,7 @@ class DatasetCallbacks:
     ) -> None:
         """Broadcasts a datasource connection for a given engine"""
         variable_name = cast(VariableName, request.engine)
-        engine, error = self._get_sql_engine(variable_name)
+        engine, error = self._get_engine_catalog(variable_name)
         if error is not None or engine is None:
             LOGGER.error("Failed to get engine %s", variable_name)
             return
@@ -2395,7 +2420,7 @@ class PackagesCallbacks:
         module_not_found_errors = [
             e
             for e in runner.exceptions.values()
-            if isinstance(e, (ModuleNotFoundError, ManyModulesNotFoundError))
+            if isinstance(e, (ImportError, ManyModulesNotFoundError))
         ]
 
         if len(module_not_found_errors) == 0:
@@ -2407,23 +2432,36 @@ class PackagesCallbacks:
         missing_modules: set[str] = set()
         missing_packages: set[str] = set()
 
-        # Populate missing_modules and missing_packages
-        # from the errors
+        # Populate missing_modules and missing_packages from the errors
         for e in module_not_found_errors:
             if isinstance(e, ManyModulesNotFoundError):
                 # filter out packages that we already attempted to install
                 # to prevent an infinite loop
                 missing_packages.update(
                     {
-                        package
-                        for package in e.package_names
-                        if not self.package_manager.attempted_to_install(
-                            package
-                        )
+                        pkg
+                        for pkg in e.package_names
+                        if not self.package_manager.attempted_to_install(pkg)
                     }
                 )
-            elif e.name is not None:
-                missing_modules.add(e.name)
+                continue
+
+            maybe_missing_module = extract_missing_module_from_cause_chain(e)
+            if maybe_missing_module:
+                missing_modules.add(maybe_missing_module)
+                continue
+
+            maybe_missing_packages = (
+                try_extract_packages_from_import_error_message(str(e))
+            )
+            if maybe_missing_packages:
+                missing_packages.update(
+                    {
+                        pkg
+                        for pkg in maybe_missing_packages
+                        if not self.package_manager.attempted_to_install(pkg)
+                    }
+                )
 
         # Grab missing modules from module registry and from module not found errors
         missing_modules = (
@@ -2462,7 +2500,9 @@ class PackagesCallbacks:
 
         Runs cells affected by successful installation.
         """
-        assert self.package_manager is not None
+        assert self.package_manager is not None, (
+            "Cannot install packages without a package manager"
+        )
         if request.manager != self.package_manager.name:
             # Swap out the package manager
             self.package_manager = create_package_manager(request.manager)
@@ -2471,17 +2511,26 @@ class PackagesCallbacks:
             self.package_manager.alert_not_installed()
             return
 
-        missing_packages_set = set(request.versions.keys())
+        resolved_packages: dict[str, PackageRequirement] = {}
+        for pkg in request.versions.keys():
+            pkg_req = PackageRequirement.parse(pkg)
+            resolved_packages[pkg_req.name] = pkg_req
+
         # Append all other missing packages from the notebook; the missing
         # package request only contains the packages from the cell the user
         # executed.
-        missing_packages_set.update(
-            [
+        for module in self._kernel.module_registry.missing_modules():
+            pkg_req = PackageRequirement.parse(
                 self.package_manager.module_to_package(module)
-                for module in self._kernel.module_registry.missing_modules()
-            ]
-        )
-        missing_packages = list(sorted(missing_packages_set))
+            )
+            if pkg_req.name not in resolved_packages:
+                resolved_packages[pkg_req.name] = pkg_req
+
+        # Convert back to list of package strings
+        missing_packages = [
+            str(pkg)
+            for pkg in sorted(resolved_packages.values(), key=lambda p: p.name)
+        ]
 
         # Frontend shows package names, not module names
         package_statuses: PackageStatusType = {
@@ -2554,6 +2603,7 @@ class PackagesCallbacks:
             self.package_manager.update_notebook_script_metadata(
                 filepath=filename,
                 import_namespaces_to_add=import_namespaces_to_add,
+                upgrade=False,
             )
         except Exception as e:
             LOGGER.error("Failed to add script metadata to notebook: %s", e)

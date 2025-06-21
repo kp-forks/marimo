@@ -4,7 +4,7 @@ from __future__ import annotations
 import unittest
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Optional
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
@@ -13,6 +13,7 @@ from marimo._config.manager import UserConfigManager
 from marimo._dependencies.dependencies import DependencyManager
 from marimo._server.ai.prompts import FILL_ME_TAG
 from marimo._server.ai.providers import (
+    AnyProviderConfig,
     OpenAIProvider,
     without_wrapping_backticks,
 )
@@ -55,6 +56,7 @@ class Delta:
 @dataclass
 class Choice:
     delta: Delta
+    finish_reason: Optional[str] = None
 
 
 # OpenAI
@@ -432,7 +434,7 @@ class TestAnthropicAiEndpoints:
 class TestGoogleAiEndpoints:
     @staticmethod
     @with_session(SESSION_ID)
-    @patch("google.generativeai.GenerativeModel")
+    @patch("google.genai.Client")
     def test_google_ai_completion_with_code(
         client: TestClient, google_ai_mock: Any
     ) -> None:
@@ -441,9 +443,12 @@ class TestGoogleAiEndpoints:
         google_client = MagicMock()
         google_ai_mock.return_value = google_client
 
-        google_client.predict.return_value = MagicMock(
-            text="import pandas as pd"
-        )
+        google_client.models.generate_content_stream.return_value = [
+            MagicMock(
+                text="import pandas as pd",
+                thought=None,
+            )
+        ]
 
         with google_ai_config(user_config_manager):
             response = client.post(
@@ -457,14 +462,18 @@ class TestGoogleAiEndpoints:
             )
             assert response.status_code == 200, response.text
             # Assert the prompt it was called with
-            prompt = google_client.generate_content.call_args.kwargs[
-                "contents"
-            ]
-            assert prompt[0]["parts"][0] == "Help me create a dataframe"
+            prompt = (
+                google_client.models.generate_content_stream.call_args.kwargs[
+                    "contents"
+                ]
+            )
+            assert (
+                prompt[0]["parts"][0]["text"] == "Help me create a dataframe"
+            )
 
     @staticmethod
     @with_session(SESSION_ID)
-    @patch("google.generativeai.GenerativeModel")
+    @patch("google.genai.Client")
     def test_google_ai_completion_without_token(
         client: TestClient, google_ai_mock: Any
     ) -> None:
@@ -488,7 +497,7 @@ class TestGoogleAiEndpoints:
 
     @staticmethod
     @with_session(SESSION_ID)
-    @patch("google.generativeai.GenerativeModel")
+    @patch("google.genai.Client")
     def test_google_ai_inline_completion(
         client: TestClient, google_ai_mock: Any
     ) -> None:
@@ -497,9 +506,12 @@ class TestGoogleAiEndpoints:
         google_client = MagicMock()
         google_ai_mock.return_value = google_client
 
-        google_client.predict.return_value = MagicMock(
-            text="df = pd.DataFrame()"
-        )
+        google_client.models.generate_content_stream.return_value = [
+            MagicMock(
+                text="df = pd.DataFrame()",
+                thought=None,
+            )
+        ]
 
         with google_ai_config(user_config_manager):
             response = client.post(
@@ -513,11 +525,13 @@ class TestGoogleAiEndpoints:
             )
             assert response.status_code == 200, response.text
             # Assert the prompt it was called with
-            prompt = google_client.generate_content.call_args.kwargs[
-                "contents"
-            ]
+            prompt = (
+                google_client.models.generate_content_stream.call_args.kwargs[
+                    "contents"
+                ]
+            )
             assert (
-                prompt[0]["parts"][0]
+                prompt[0]["parts"][0]["text"]
                 == f"import pandas as pd\n{FILL_ME_TAG}\ndf.head()"
             )
 
@@ -770,7 +784,8 @@ def test_chat_with_code(client: TestClient) -> None:
 
 class TestGetContent(unittest.TestCase):
     def test_extract_content_with_none_delta(self) -> None:
-        provider = OpenAIProvider(model="gpt-4o", config={})
+        config = AnyProviderConfig(base_url=None, api_key="test-key")
+        provider = OpenAIProvider(model="gpt-4o", config=config)
         # Create a mock response with choices but delta is None
         mock_response = Mock()
         mock_response.choices = [Mock()]
@@ -793,11 +808,84 @@ class TestGetContent(unittest.TestCase):
         mock_response.choices[0].delta.content = "Test content"
 
         # Call get_content with the mock response
-        provider = OpenAIProvider(model="gpt-4o", config={})
-        result = provider.extract_content(mock_response)
+        config = AnyProviderConfig(base_url=None, api_key="test-key")
+        provider = OpenAIProvider(model="gpt-4o", config=config)
+        result_text, result_type = provider.extract_content(mock_response)
 
         # Assert that the result is the expected content
-        assert result == "Test content"
+        assert result_text == "Test content"
+        assert result_type == "text"
+
+
+class TestGetFinishReason(unittest.TestCase):
+    def test_get_finish_reason_with_no_choices(self) -> None:
+        config = AnyProviderConfig(base_url=None, api_key="test-key")
+        provider = OpenAIProvider(model="gpt-4o", config=config)
+        # Create a mock response with no choices
+        mock_response = Mock()
+        mock_response.choices = []
+
+        # Call get_finish_reason with the mock response
+        result = provider.get_finish_reason(mock_response)
+
+        # Assert that the result is None
+        assert result is None
+
+    def test_get_finish_reason_with_none_finish_reason(self) -> None:
+        config = AnyProviderConfig(base_url=None, api_key="test-key")
+        provider = OpenAIProvider(model="gpt-4o", config=config)
+        # Create a mock response with choices but finish_reason is None
+        mock_response = Mock()
+        mock_response.choices = [Mock()]
+        mock_response.choices[0].finish_reason = None
+
+        # Call get_finish_reason with the mock response
+        result = provider.get_finish_reason(mock_response)
+
+        # Assert that the result is None
+        assert result is None
+
+    def test_get_finish_reason_with_tool_calls(self) -> None:
+        config = AnyProviderConfig(base_url=None, api_key="test-key")
+        provider = OpenAIProvider(model="gpt-4o", config=config)
+        # Create a mock response with choices and finish_reason = "tool_calls"
+        mock_response = Mock()
+        mock_response.choices = [Mock()]
+        mock_response.choices[0].finish_reason = "tool_calls"
+
+        # Call get_finish_reason with the mock response
+        result = provider.get_finish_reason(mock_response)
+
+        # Assert that the result is "tool_calls"
+        assert result == "tool_calls"
+
+    def test_get_finish_reason_with_stop(self) -> None:
+        config = AnyProviderConfig(base_url=None, api_key="test-key")
+        provider = OpenAIProvider(model="gpt-4o", config=config)
+        # Create a mock response with choices and finish_reason = "stop"
+        mock_response = Mock()
+        mock_response.choices = [Mock()]
+        mock_response.choices[0].finish_reason = "stop"
+
+        # Call get_finish_reason with the mock response
+        result = provider.get_finish_reason(mock_response)
+
+        # Assert that the result is "stop"
+        assert result == "stop"
+
+    def test_get_finish_reason_with_other_reason(self) -> None:
+        config = AnyProviderConfig(base_url=None, api_key="test-key")
+        provider = OpenAIProvider(model="gpt-4o", config=config)
+        # Create a mock response with choices and finish_reason = "length"
+        mock_response = Mock()
+        mock_response.choices = [Mock()]
+        mock_response.choices[0].finish_reason = "length"
+
+        # Call get_finish_reason with the mock response
+        result = provider.get_finish_reason(mock_response)
+
+        # Assert that the result is "stop" (fallback for non-tool_calls reasons)
+        assert result == "stop"
 
 
 @pytest.mark.parametrize(

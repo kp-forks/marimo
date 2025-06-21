@@ -13,20 +13,31 @@ LOGGER = _loggers.marimo_logger()
 
 
 class PyProjectReader:
-    def __init__(self, project: dict[str, Any], *, config_path: str | None):
+    def __init__(
+        self,
+        project: dict[str, Any],
+        *,
+        config_path: str | None,
+        name: str | None = None,
+    ):
         self.project = project
         self.config_path = config_path
+        self.name = name
 
     @staticmethod
     def from_filename(name: str) -> PyProjectReader:
         return PyProjectReader(
-            _get_pyproject_from_filename(name) or {}, config_path=name
+            name=name,
+            project=_get_pyproject_from_filename(name) or {},
+            config_path=name,
         )
 
     @staticmethod
     def from_script(script: str) -> PyProjectReader:
         return PyProjectReader(
-            read_pyproject_from_script(script) or {}, config_path=None
+            project=read_pyproject_from_script(script) or {},
+            config_path=None,
+            name=None,
         )
 
     @property
@@ -197,7 +208,7 @@ def is_marimo_dependency(dependency: str) -> bool:
 
 
 def get_headers_from_markdown(contents: str) -> dict[str, str]:
-    from marimo._cli.convert.markdown import extract_frontmatter
+    from marimo._convert.markdown.markdown import extract_frontmatter
 
     frontmatter, _ = extract_frontmatter(contents)
     return get_headers_from_frontmatter(frontmatter)

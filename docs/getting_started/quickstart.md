@@ -11,6 +11,10 @@ point to all things marimo.
 marimo tutorial --help
 ```
 
+!!! tip "See marimo in action on YouTube"
+
+    The [marimo concepts playlist](https://www.youtube.com/watch?v=3N6lInzq5MI&list=PLNJXGo8e1XT9jP7gPbRdm1XwloZVFvLEq) on our [YouTube channel](https://www.youtube.com/@marimo-team) gives an overview of many features.
+
 ## Edit notebooks
 
 Create and edit notebooks with `marimo edit`.
@@ -50,7 +54,6 @@ python your_notebook.py
 
 You can also [pass CLI args](../guides/scripts.md) to your notebook.
 
-
 ## Convert from Jupyter to marimo
 
 Automatically convert Jupyter notebooks to marimo notebooks with `marimo convert`:
@@ -67,7 +70,7 @@ Then open the notebook with `marimo edit your_notebook.py`
     startup), you can disable autorun on startup via [user configuration](../guides/configuration/runtime_configuration.md).
 
     1. Type `marimo config show` to get the location of your config file.
-    2. If no config file exists, create it at `~/.marimo.toml` or `$XDG_CONFIG_HOME/marimo/marimo.toml`.
+    2. If no config file exists, create it at `$XDG_CONFIG_HOME/marimo/marimo.toml`.
     3. Update your config to include the following:
 
     ```toml title="marimo.toml"

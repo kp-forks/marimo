@@ -219,6 +219,9 @@ class PackageManagementConfig(TypedDict):
     manager: Literal["pip", "rye", "uv", "poetry", "pixi"]
 
 
+CopilotMode = Literal["ask", "manual"]
+
+
 @dataclass
 class AiConfig(TypedDict, total=False):
     """Configuration options for AI.
@@ -227,16 +230,20 @@ class AiConfig(TypedDict, total=False):
 
     - `rules`: custom rules to include in all AI completion prompts
     - `max_tokens`: the maximum number of tokens to use in AI completions
+    - `mode`: the mode to use for AI completions. Can be one of: `"ask"` or `"manual"`
     - `open_ai`: the OpenAI config
     - `anthropic`: the Anthropic config
     - `google`: the Google AI config
+    - `bedrock`: the Bedrock config
     """
 
     rules: NotRequired[str]
     max_tokens: NotRequired[int]
+    mode: NotRequired[CopilotMode]
     open_ai: OpenAiConfig
     anthropic: AnthropicConfig
     google: GoogleAiConfig
+    bedrock: BedrockConfig
 
 
 @dataclass
@@ -268,7 +275,7 @@ class AnthropicConfig(TypedDict, total=False):
 
     **Keys.**
 
-    - `api_key`: the Anthropic
+    - `api_key`: the Anthropic API key
     """
 
     api_key: str
@@ -284,6 +291,24 @@ class GoogleAiConfig(TypedDict, total=False):
     """
 
     api_key: str
+
+
+@dataclass
+class BedrockConfig(TypedDict, total=False):
+    """Configuration options for Bedrock.
+
+    **Keys.**
+
+    - `profile_name`: the AWS profile to use
+    - `region_name`: the AWS region to use
+    - `aws_access_key_id`: the AWS access key ID
+    - `aws_secret_access_key`: the AWS secret access key
+    """
+
+    profile_name: NotRequired[str]
+    region_name: NotRequired[str]
+    aws_access_key_id: NotRequired[str]
+    aws_secret_access_key: NotRequired[str]
 
 
 @dataclass

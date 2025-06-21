@@ -1,5 +1,5 @@
 /* Copyright 2024 Marimo. All rights reserved. */
-import type { paths, components } from "@marimo-team/marimo-api";
+import type { components, paths } from "@marimo-team/marimo-api";
 import type { CellId } from "../cells/ids";
 
 export type schemas = components["schemas"];
@@ -45,6 +45,9 @@ export type InstallMissingPackagesRequest =
 export type AddPackageRequest = schemas["AddPackageRequest"];
 export type RemovePackageRequest = schemas["RemovePackageRequest"];
 export type ListPackagesResponse = schemas["ListPackagesResponse"];
+export type DependencyTreeResponse = schemas["DependencyTreeResponse"];
+export type DependencyTreeNode = schemas["DependencyTreeNode"];
+
 export type PackageOperationResponse = schemas["PackageOperationResponse"];
 export type InstantiateRequest = schemas["InstantiateRequest"];
 export type MarimoConfig = schemas["MarimoConfig"];
@@ -73,6 +76,7 @@ export interface SetCellConfigRequest {
   configs: Record<CellId, Partial<CellConfig>>;
 }
 export type SetUIElementValueRequest = schemas["SetUIElementValueRequest"];
+export type SetModelMessageRequest = schemas["SetModelMessageRequest"];
 export type UpdateCellIdsRequest = schemas["UpdateCellIdsRequest"];
 export type SetUserConfigRequest = schemas["SetUserConfigRequest"];
 export type ShutdownSessionRequest = schemas["ShutdownSessionRequest"];
@@ -96,6 +100,7 @@ export type TutorialId = OpenTutorialRequest["tutorialId"];
  */
 export interface RunRequests {
   sendComponentValues: (request: UpdateComponentValuesRequest) => Promise<null>;
+  sendModelValue: (request: SetModelMessageRequest) => Promise<null>;
   sendInstantiate: (request: InstantiateRequest) => Promise<null>;
   sendFunctionRequest: (request: FunctionCallRequest) => Promise<null>;
 }
@@ -166,6 +171,7 @@ export interface EditRequests {
   autoExportAsIPYNB: (request: ExportAsIPYNBRequest) => Promise<null>;
   // Package requests
   getPackageList: () => Promise<ListPackagesResponse>;
+  getDependencyTree: () => Promise<DependencyTreeResponse>;
   addPackage: (request: AddPackageRequest) => Promise<PackageOperationResponse>;
   removePackage: (
     request: RemovePackageRequest,

@@ -1,15 +1,16 @@
 /* Copyright 2024 Marimo. All rights reserved. */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { toast } from "@/components/ui/use-toast";
-import type { EditRequests, RequestKey, RunRequests } from "./types";
-import { Logger } from "@/utils/Logger";
 import { prettyError } from "@/utils/errors";
+import { Logger } from "@/utils/Logger";
+import type { EditRequests, RequestKey, RunRequests } from "./types";
 
 export function createErrorToastingRequests(
   delegate: EditRequests & RunRequests,
 ): EditRequests & RunRequests {
   const MESSAGES: Record<RequestKey, string> = {
     sendComponentValues: "Failed update value",
+    sendModelValue: "Failed to update model value",
     sendInstantiate: "Failed to instantiate",
     sendFunctionRequest: "Failed to send function request",
     sendRestart: "Failed to restart",
@@ -57,6 +58,7 @@ export function createErrorToastingRequests(
     addPackage: "Failed to add package",
     removePackage: "Failed to remove package",
     getPackageList: "Failed to get package list",
+    getDependencyTree: "Failed to get dependency tree",
     listSecretKeys: "Failed to fetch secrets",
     writeSecret: "Failed to write secret",
   };
