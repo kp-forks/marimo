@@ -18,8 +18,10 @@ from narwhals.typing import IntoDataFrame
 
 import marimo._output.data.data as mo_data
 from marimo import _loggers
-from marimo._data.models import NonNestedLiteral
+from marimo._data.models import ColumnStats
+from marimo._data.preview_column import get_column_preview_dataset
 from marimo._dependencies.dependencies import DependencyManager
+from marimo._messaging.ops import ColumnPreview
 from marimo._output.mime import MIME
 from marimo._output.rich_help import mddoc
 from marimo._plugins.core.web_component import JSONType
@@ -56,6 +58,7 @@ from marimo._runtime.context.types import (
     get_context,
 )
 from marimo._runtime.functions import EmptyArgs, Function
+from marimo._utils.hashable import is_hashable
 from marimo._utils.narwhals_utils import (
     can_narwhalify_lazyframe,
     unwrap_narwhals_dataframe,
@@ -75,23 +78,9 @@ class DownloadAsArgs:
 
 
 @dataclass
-class ColumnSummary:
-    column: str
-    nulls: Optional[int]
-    # int, float, datetime
-    min: Optional[NonNestedLiteral]
-    max: Optional[NonNestedLiteral]
-    # str
-    unique: Optional[int]
-    # bool
-    true: Optional[NonNestedLiteral] = None
-    false: Optional[NonNestedLiteral] = None
-
-
-@dataclass
 class ColumnSummaries:
     data: Union[JSONType, str]
-    summaries: list[ColumnSummary]
+    stats: dict[ColumnName, ColumnStats]
     # Disabled because of too many columns/rows
     # This will show a banner in the frontend
     is_disabled: Optional[bool] = None
@@ -99,8 +88,8 @@ class ColumnSummaries:
 
 DEFAULT_MAX_COLUMNS = 50
 
-MaxColumnsNotProvided = Literal["max_columns_not_provided"]
-MAX_COLUMNS_NOT_PROVIDED: MaxColumnsNotProvided = "max_columns_not_provided"
+MaxColumnsNotProvided = Literal["inherit"]
+MAX_COLUMNS_NOT_PROVIDED: MaxColumnsNotProvided = "inherit"
 
 
 @dataclass(frozen=True)
@@ -111,7 +100,7 @@ class SearchTableArgs:
     sort: Optional[SortArgs] = None
     filters: Optional[list[Condition]] = None
     limit: Optional[int] = None
-    max_columns: Optional[int | MaxColumnsNotProvided] = (
+    max_columns: Optional[Union[int, MaxColumnsNotProvided]] = (
         MAX_COLUMNS_NOT_PROVIDED
     )
 
@@ -154,6 +143,11 @@ class CalculateTopKRowsArgs:
 @dataclass
 class CalculateTopKRowsResponse:
     data: list[tuple[str, int]]
+
+
+@dataclass
+class PreviewColumnArgs:
+    column: ColumnName
 
 
 def get_default_table_page_size() -> int:
@@ -440,6 +434,7 @@ class table(
         # Holds the original data
         self._manager = get_table_manager(data)
         self._max_columns = max_columns
+        max_columns_arg = "all" if max_columns is None else max_columns
 
         if _internal_total_rows is not None:
             total_rows = _internal_total_rows
@@ -595,6 +590,7 @@ class table(
                 "data": search_result_data,
                 "total-rows": total_rows,
                 "total-columns": num_columns,
+                "max-columns": max_columns_arg,
                 "banner-text": self._get_banner_text(),
                 "pagination": pagination,
                 "page-size": page_size,
@@ -648,13 +644,16 @@ class table(
                     arg_cls=CalculateTopKRowsArgs,
                     function=self._calculate_top_k_rows,
                 ),
+                Function(
+                    name="preview_column",
+                    arg_cls=PreviewColumnArgs,
+                    function=self._preview_column,
+                ),
             ),
         )
 
     @property
-    def data(
-        self,
-    ) -> TableData:
+    def data(self) -> TableData:
         """Get the original table data.
 
         Returns:
@@ -771,7 +770,7 @@ class table(
         if not self._show_column_summaries:
             return ColumnSummaries(
                 data=None,
-                summaries=[],
+                stats={},
                 # This is not 'disabled' because of too many rows
                 # so we don't want to display the banner
                 is_disabled=False,
@@ -784,33 +783,21 @@ class table(
         if total_rows > self._column_summary_row_limit:
             return ColumnSummaries(
                 data=None,
-                summaries=[],
+                stats={},
                 is_disabled=True,
             )
 
-        # Get column summaries if not chart-only mode
-        summaries: list[ColumnSummary] = []
+        # Get column stats if not chart-only mode
+        stats: dict[ColumnName, ColumnStats] = {}
         if self._show_column_summaries != "chart":
             for column in self._manager.get_column_names():
                 try:
-                    summary = self._searched_manager.get_summary(column)
-                    summaries.append(
-                        ColumnSummary(
-                            column=column,
-                            nulls=summary.nulls,
-                            min=summary.min,
-                            max=summary.max,
-                            unique=summary.unique,
-                            true=summary.true,
-                            false=summary.false,
-                        )
-                    )
+                    statistic = self._searched_manager.get_stats(column)
+                    stats[column] = statistic
                 except BaseException:
                     # Catch-all: some libraries like Polars have bugs and raise
                     # BaseExceptions, which shouldn't crash the kernel
-                    LOGGER.warning(
-                        "Failed to get summary for column %s", column
-                    )
+                    LOGGER.warning("Failed to get stats for column %s", column)
 
         # If we are above the limit to show charts,
         # or if we are in stats-only mode,
@@ -824,7 +811,7 @@ class table(
 
         return ColumnSummaries(
             data=chart_data,
-            summaries=summaries,
+            stats=stats,
             is_disabled=False,
         )
 
@@ -870,6 +857,15 @@ class table(
         )
 
     @functools.lru_cache(maxsize=1)  # noqa: B019
+    def _apply_filters_query_sort_cached(
+        self,
+        filters: Optional[list[Condition]],
+        query: Optional[str],
+        sort: Optional[SortArgs],
+    ) -> TableManager[Any]:
+        """Cached version that expects hashable arguments."""
+        return self._apply_filters_query_sort(filters, query, sort)
+
     def _apply_filters_query_sort(
         self,
         filters: Optional[list[Condition]],
@@ -914,37 +910,49 @@ class table(
             LOGGER.error("Failed to calculate top k rows: %s", e)
             return CalculateTopKRowsResponse(data=[])
 
-    def _style_cells(self, skip: int, take: int) -> Optional[CellStyles]:
+    def _preview_column(self, args: PreviewColumnArgs) -> ColumnPreview:
+        """Preview a column of a dataset."""
+        column = args.column
+
+        # We use a placeholder for table names
+        column_preview = get_column_preview_dataset(
+            self._searched_manager, "_df", column
+        )
+        return column_preview
+
+    def _style_cells(
+        self, skip: int, take: int, total_rows: Union[int, Literal["too_many"]]
+    ) -> Optional[CellStyles]:
         """Calculate the styling of the cells in the table."""
         if self._style_cell is None:
             return None
+
+        def do_style_cell(row: str, col: str) -> dict[str, Any]:
+            selected_cells = self._searched_manager.select_cells(
+                [TableCoordinate(row_id=row, column_name=col)]
+            )
+            if not selected_cells or self._style_cell is None:
+                return {}
+            return self._style_cell(row, col, selected_cells[0].value)
+
+        columns = self._searched_manager.get_column_names()
+        response = self._get_row_ids(EmptyArgs())
+
+        # Clamp the take to the total number of rows
+        if total_rows != "too_many" and skip + take > total_rows:
+            take = total_rows - skip
+
+        # Determine row range
+        row_ids: Union[list[int], range]
+        if response.all_rows or response.error:
+            row_ids = range(skip, skip + take)
         else:
+            row_ids = response.row_ids[skip : skip + take]
 
-            def do_style_cell(row: str, col: str) -> dict[str, Any]:
-                selected_cells = self._searched_manager.select_cells(
-                    [TableCoordinate(row_id=row, column_name=col)]
-                )
-                if len(selected_cells) == 0 or self._style_cell is None:
-                    return dict()
-                else:
-                    return self._style_cell(row, col, selected_cells[0].value)
-
-            columns = self._searched_manager.get_column_names()
-            response = self._get_row_ids(EmptyArgs())
-
-            row_ids: list[int] | range
-            if response.all_rows is True or response.error is not None:
-                # TODO: Handle sorted rows, they have reverse order of row_ids
-                row_ids = range(skip, skip + take)
-            else:
-                row_ids = response.row_ids[skip : skip + take]
-
-            return {
-                str(row): {
-                    col: do_style_cell(str(row), col) for col in columns
-                }
-                for row in row_ids
-            }
+        return {
+            str(row): {col: do_style_cell(str(row), col) for col in columns}
+            for row in row_ids
+        }
 
     def _search(self, args: SearchTableArgs) -> SearchTableResponse:
         """Search and filter the table data.
@@ -960,8 +968,8 @@ class table(
                 - sort: Optional sorting configuration
                 - filters: Optional list of filter conditions
                 - limit: Optional row limit
-                - max_columns: Optional max number of columns to display. If
-                  `MAX_COLUMNS_NOT_PROVIDED`, default to table's max columns.
+                - max_columns: Optional max number of columns. None means show all columns,
+                  MAX_COLUMNS_NOT_PROVIDED means use the table's max_columns setting.
 
         Returns:
             SearchTableResponse: Response containing:
@@ -997,19 +1005,18 @@ class table(
             return SearchTableResponse(
                 data=clamp_rows_and_columns(self._manager),
                 total_rows=total_rows,
-                # The __init__ will just call this with an arbitrary offset,
-                # we need to check this is not larger than our actual number of rows.
                 cell_styles=self._style_cells(
-                    offset,
-                    min(total_rows, args.page_size)
-                    if total_rows != "too_many"
-                    else args.page_size,
+                    offset, args.page_size, total_rows
                 ),
             )
 
-        # Apply filters, query, and functools.sort using the cached method
-        result = self._apply_filters_query_sort(
-            tuple(args.filters) if args.filters else None,
+        filter_function = (
+            self._apply_filters_query_sort_cached
+            if is_hashable(args.filters, args.query, args.sort)
+            else self._apply_filters_query_sort
+        )
+        result = filter_function(
+            tuple(args.filters) if args.filters else None,  # type: ignore
             args.query,
             args.sort,
         )
@@ -1025,7 +1032,7 @@ class table(
         return SearchTableResponse(
             data=clamp_rows_and_columns(result),
             total_rows=total_rows,
-            cell_styles=self._style_cells(offset, args.page_size),
+            cell_styles=self._style_cells(offset, args.page_size, total_rows),
         )
 
     def _get_row_ids(self, args: EmptyArgs) -> GetRowIdsResponse:

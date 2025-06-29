@@ -10,7 +10,7 @@ from unittest.mock import Mock
 import narwhals.stable.v1 as nw
 import pytest
 
-from marimo._data.models import ColumnSummary
+from marimo._data.models import ColumnStats
 from marimo._dependencies.dependencies import DependencyManager
 from marimo._plugins.ui._impl.tables.format import FormatMapping
 from marimo._plugins.ui._impl.tables.pandas_table import (
@@ -254,6 +254,21 @@ class TestPandasTableManager(unittest.TestCase):
             {"X": "z", "Y": 3, "a": 3, "b": 6},
         ]
 
+    def test_to_json_multi_index_numeric(self) -> None:
+        # MultiIndex with numeric levels
+        data = pd.DataFrame(
+            {
+                "category": list("abab"),
+                "num_col": [0, 0, 1, 1],
+                "str_col": list("aabb"),
+                "val": [1, 2, 3, 4],
+            }
+        )
+        data_pivoted = data.pivot(
+            index="category", columns=["num_col", "str_col"], values="val"
+        )
+        assert PandasTableManagerFactory.create()(data_pivoted) is not None
+
     @pytest.mark.xfail(reason="Implementation not yet supported")
     def test_to_json_multi_index_unnamed(self) -> None:
         data = pd.DataFrame(
@@ -268,6 +283,42 @@ class TestPandasTableManager(unittest.TestCase):
             {"level_0": "x", "level_1": 1, "a": 1, "b": 4},
             {"level_0": "y", "level_1": 2, "a": 2, "b": 5},
             {"level_0": "z", "level_1": 3, "a": 3, "b": 6},
+        ]
+
+    def test_to_json_multi_index_unnamed_2(self) -> None:
+        # Create a DataFrame with a MultiIndex where second level is unnamed
+        df = pd.DataFrame(
+            {
+                "A": [1, 2, 3, 4],
+                "B": [5, 6, 7, 8],
+            },
+            index=pd.MultiIndex.from_tuples(
+                [("x", 1), ("x", 2), ("y", 1), ("y", 2)],
+                names=["level1", None],  # Second level is unnamed
+            ),
+        )
+
+        json_data = self.factory_create_json_from_df(df)
+        # Second level converted to empty string
+        assert json_data == [
+            {"level1": "x", "": 1, "A": 1, "B": 5},
+            {"level1": "x", "": 2, "A": 2, "B": 6},
+            {"level1": "y", "": 1, "A": 3, "B": 7},
+            {"level1": "y", "": 2, "A": 4, "B": 8},
+        ]
+
+    def test_to_json_multi_index_unnamed_3(self) -> None:
+        cols = pd.MultiIndex.from_tuples([("weight", "kg"), ("height", "m")])
+        df = pd.DataFrame(
+            [[1.0, 2.0], [3.0, 4.0]], index=["cat", "dog"], columns=cols
+        )
+        df = df.stack(future_stack=True)
+        json_data = self.factory_create_json_from_df(df)
+        assert json_data == [
+            {"": "cat", " ": "kg", "weight": 1.0, "height": None},
+            {"": "cat", " ": "m", "weight": None, "height": 2.0},
+            {"": "dog", " ": "kg", "weight": 3.0, "height": None},
+            {"": "dog", " ": "m", "weight": None, "height": 4.0},
         ]
 
     def test_to_json_multi_col_index(self) -> None:
@@ -496,8 +547,8 @@ class TestPandasTableManager(unittest.TestCase):
 
     def test_summary_integer(self) -> None:
         column = "A"
-        summary = self.manager.get_summary(column)
-        assert summary == ColumnSummary(
+        summary = self.manager.get_stats(column)
+        assert summary == ColumnStats(
             total=3,
             nulls=0,
             unique=3,
@@ -516,8 +567,8 @@ class TestPandasTableManager(unittest.TestCase):
 
     def test_summary_string(self) -> None:
         column = "B"
-        summary = self.manager.get_summary(column)
-        assert summary == ColumnSummary(
+        summary = self.manager.get_stats(column)
+        assert summary == ColumnStats(
             total=3,
             nulls=0,
             unique=3,
@@ -525,8 +576,8 @@ class TestPandasTableManager(unittest.TestCase):
 
     def test_summary_number(self) -> None:
         column = "C"
-        summary = self.manager.get_summary(column)
-        assert summary == ColumnSummary(
+        summary = self.manager.get_stats(column)
+        assert summary == ColumnStats(
             total=3,
             nulls=0,
             unique=None,
@@ -545,8 +596,8 @@ class TestPandasTableManager(unittest.TestCase):
 
     def test_summary_boolean(self) -> None:
         column = "D"
-        summary = self.manager.get_summary(column)
-        assert summary == ColumnSummary(
+        summary = self.manager.get_stats(column)
+        assert summary == ColumnStats(
             total=3,
             nulls=0,
             true=2,
@@ -555,9 +606,9 @@ class TestPandasTableManager(unittest.TestCase):
 
     def test_summary_date(self) -> None:
         column = "E"
-        summary = self.manager.get_summary(column)
+        summary = self.manager.get_stats(column)
 
-        assert summary == ColumnSummary(
+        assert summary == ColumnStats(
             total=3,
             nulls=0,
             unique=None,
@@ -576,8 +627,8 @@ class TestPandasTableManager(unittest.TestCase):
 
     def test_summary_list(self) -> None:
         column = "F"
-        summary = self.manager.get_summary(column)
-        assert summary == ColumnSummary(
+        summary = self.manager.get_stats(column)
+        assert summary == ColumnStats(
             total=3,
             nulls=0,
         )
@@ -585,7 +636,7 @@ class TestPandasTableManager(unittest.TestCase):
     def test_summary_does_fail_on_each_column(self) -> None:
         complex_data = self.get_complex_data()
         for column in complex_data.get_column_names():
-            assert complex_data.get_summary(column) is not None
+            assert complex_data.get_stats(column) is not None
 
     def test_sort_values(self) -> None:
         sorted_df = self.manager.sort_values("A", descending=True).data
@@ -946,7 +997,7 @@ class TestPandasTableManager(unittest.TestCase):
     def test_dataframe_with_all_null_column(self) -> None:
         df = pd.DataFrame({"A": [1, 2, 3], "B": [None, None, None]})
         manager = self.factory.create()(df)
-        summary = manager.get_summary("B")
+        summary = manager.get_stats("B")
         assert summary.nulls == 3
         assert summary.total == 3
         assert summary.unique is None

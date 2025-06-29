@@ -1,37 +1,48 @@
 /* Copyright 2024 Marimo. All rights reserved. */
 
-import React, { useState, useMemo } from "react";
-import { Button } from "@/components/ui/button";
-import { TableIcon, XIcon, DatabaseIcon, PaintRollerIcon } from "lucide-react";
-import { Tabs, TabsTrigger, TabsList, TabsContent } from "@/components/ui/tabs";
-import type { z } from "zod";
-import { useForm, type UseFormReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { ChartSchema } from "./schemas";
-import { Form } from "@/components/ui/form";
-import { getDefaults } from "@/components/forms/form-utils";
 import { useAtom } from "jotai";
-import type { CellId } from "@/core/cells/ids";
-import { getChartTabName, type TabName, tabsStorageAtom } from "./storage";
-import type { FieldTypesWithExternalType } from "../types";
-import { useAsyncData } from "@/hooks/useAsyncData";
-import { vegaLoadData } from "@/plugins/impl/vega/loader";
-import type { GetDataUrl } from "@/plugins/impl/DataTablePlugin";
-import type { Field } from "./components/form-fields";
-import { useDebouncedCallback } from "@/hooks/useDebounce";
-import { inferFieldTypes } from "../columns";
-import { LazyChart } from "./lazy-chart";
 import {
-  ChartLoadingState,
+  ChartColumnIcon,
+  CodeIcon,
+  DatabaseIcon,
+  PaintRollerIcon,
+  TableIcon,
+  XIcon,
+} from "lucide-react";
+import type { JSX } from "react";
+import React, { useMemo, useState } from "react";
+import { type UseFormReturn, useForm } from "react-hook-form";
+import { PythonIcon } from "@/components/editor/cell/code/icons";
+import { getDefaults } from "@/components/forms/form-utils";
+import { Button } from "@/components/ui/button";
+import { Form } from "@/components/ui/form";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import type { CellId } from "@/core/cells/ids";
+import { useAsyncData } from "@/hooks/useAsyncData";
+import { useDebouncedCallback } from "@/hooks/useDebounce";
+import type { GetDataUrl } from "@/plugins/impl/DataTablePlugin";
+import { vegaLoadData } from "@/plugins/impl/vega/loader";
+import { useTheme } from "@/theme/useTheme";
+import { inferFieldTypes } from "../columns";
+import type { FieldTypesWithExternalType } from "../types";
+import { generateAltairChartSnippet } from "./chart-spec/altair-generator";
+import { createSpecWithoutData } from "./chart-spec/spec";
+import {
   ChartErrorState,
+  ChartLoadingState,
   ChartTypeSelect,
 } from "./components/chart-items";
-import { ChartType } from "./types";
+import type { Field } from "./components/form-fields";
+import { CodeSnippet, TabContainer } from "./components/layouts";
+import { ChartFormContext } from "./context";
+import { CommonChartForm, StyleForm } from "./forms/common-chart";
 import { HeatmapForm } from "./forms/heatmap";
 import { PieForm } from "./forms/pie";
-import { CommonChartForm, StyleForm } from "./forms/common-chart";
-import { TabContainer } from "./components/layouts";
-import { ChartFormContext } from "./context";
+import { LazyChart } from "./lazy-chart";
+import { ChartSchema, type ChartSchemaType } from "./schemas";
+import { getChartTabName, type TabName, tabsStorageAtom } from "./storage";
+import { ChartType } from "./types";
 
 const NEW_CHART_TYPE = "bar" as ChartType;
 const DEFAULT_TAB_NAME = "table" as TabName;
@@ -100,7 +111,7 @@ export const TablePanel: React.FC<TablePanelProps> = ({
   const saveTabChart = (
     tabName: TabName,
     chartType: ChartType,
-    chartConfig: z.infer<typeof ChartSchema>,
+    chartConfig: ChartSchemaType,
   ) => {
     if (!cellId) {
       return;
@@ -186,7 +197,7 @@ export const TablePanel: React.FC<TablePanelProps> = ({
         {dataTable}
       </TabsContent>
       {tabs.map((tab, idx) => {
-        const saveChart = (formValues: z.infer<typeof ChartSchema>) => {
+        const saveChart = (formValues: ChartSchemaType) => {
           saveTabChart(tab.tabName, tab.chartType, formValues);
         };
         const saveChartType = (chartType: ChartType) => {
@@ -210,9 +221,9 @@ export const TablePanel: React.FC<TablePanelProps> = ({
 };
 
 export const ChartPanel: React.FC<{
-  chartConfig: z.infer<typeof ChartSchema> | null;
+  chartConfig: ChartSchemaType | null;
   chartType: ChartType;
-  saveChart: (formValues: z.infer<typeof ChartSchema>) => void;
+  saveChart: (formValues: ChartSchemaType) => void;
   saveChartType: (chartType: ChartType) => void;
   getDataUrl?: GetDataUrl;
   fieldTypes?: FieldTypesWithExternalType | null;
@@ -224,7 +235,8 @@ export const ChartPanel: React.FC<{
   getDataUrl,
   fieldTypes,
 }) => {
-  const form = useForm<z.infer<typeof ChartSchema>>({
+  const { theme } = useTheme();
+  const form = useForm<ChartSchemaType>({
     defaultValues: chartConfig ?? getDefaults(ChartSchema),
     resolver: zodResolver(ChartSchema),
   });
@@ -232,7 +244,7 @@ export const ChartPanel: React.FC<{
   const [selectedChartType, setSelectedChartType] =
     useState<ChartType>(chartType);
 
-  const { data, loading, error } = useAsyncData(async () => {
+  const { data, isPending, error } = useAsyncData(async () => {
     if (!getDataUrl) {
       return [];
     }
@@ -263,24 +275,87 @@ export const ChartPanel: React.FC<{
     return structuredClone(formValues);
   }, [formValues]);
 
+  const specWithoutData = createSpecWithoutData(
+    selectedChartType,
+    memoizedFormValues,
+    theme,
+    "container",
+    CHART_HEIGHT,
+  );
+
   // Prevent unnecessary re-renders of the chart
   const memoizedChart = useMemo(() => {
-    if (loading) {
+    if (isPending) {
       return <ChartLoadingState />;
     }
     if (error) {
       return <ChartErrorState error={error} />;
     }
     return (
-      <LazyChart
-        chartType={selectedChartType}
-        formValues={memoizedFormValues}
-        data={data}
-        width="container"
-        height={CHART_HEIGHT}
-      />
+      <LazyChart baseSpec={specWithoutData} data={data} height={CHART_HEIGHT} />
     );
-  }, [loading, error, memoizedFormValues, data, selectedChartType]);
+  }, [isPending, error, specWithoutData, data]);
+
+  const developmentMode = import.meta.env.DEV;
+
+  const renderChartDisplay = () => {
+    let altairCodeSnippet = "X and Y columns are not set";
+    if (typeof specWithoutData !== "string") {
+      altairCodeSnippet = generateAltairChartSnippet(
+        specWithoutData,
+        "df",
+        "_chart",
+      );
+    }
+
+    return (
+      <Tabs defaultValue="chart">
+        <TabsList>
+          <TabsTrigger value="chart" className="h-6">
+            <ChartColumnIcon className="text-muted-foreground mr-2 w-4 h-4" />
+            Chart
+          </TabsTrigger>
+          <TabsTrigger value="code" className="h-6">
+            <PythonIcon className="text-muted-foreground mr-2" />
+            Python code
+          </TabsTrigger>
+          {developmentMode && (
+            <>
+              <TabsTrigger value="formValues" className="h-6">
+                <CodeIcon className="text-muted-foreground mr-2 w-4 h-4" />
+                Form values (debug)
+              </TabsTrigger>
+              <TabsTrigger value="vegaSpec" className="h-6">
+                <CodeIcon className="text-muted-foreground mr-2 w-4 h-4" />
+                Vega spec (debug)
+              </TabsTrigger>
+            </>
+          )}
+        </TabsList>
+
+        <TabsContent value="chart">{memoizedChart}</TabsContent>
+        <TabsContent value="code">
+          <CodeSnippet code={altairCodeSnippet} language="python" />
+        </TabsContent>
+        {developmentMode && (
+          <>
+            <TabsContent value="formValues">
+              <CodeSnippet
+                code={JSON.stringify(formValues, null, 2)}
+                language="python"
+              />
+            </TabsContent>
+            <TabsContent value="vegaSpec">
+              <CodeSnippet
+                code={JSON.stringify(specWithoutData, null, 2)}
+                language="python"
+              />
+            </TabsContent>
+          </>
+        )}
+      </Tabs>
+    );
+  };
 
   return (
     <div className="flex flex-row gap-2 h-full rounded-md border pr-2">
@@ -300,7 +375,9 @@ export const ChartPanel: React.FC<{
           chartType={selectedChartType}
         />
       </div>
-      <div className="flex-1 overflow-auto h-full w-full">{memoizedChart}</div>
+      <div className="flex-1 overflow-auto h-full w-full mt-3">
+        {renderChartDisplay()}
+      </div>
     </div>
   );
 };
@@ -311,9 +388,9 @@ const ChartFormContainer = ({
   fieldTypes,
   chartType,
 }: {
-  form: UseFormReturn<z.infer<typeof ChartSchema>>;
+  form: UseFormReturn<ChartSchemaType>;
   chartType: ChartType;
-  saveChart: (formValues: z.infer<typeof ChartSchema>) => void;
+  saveChart: (formValues: ChartSchemaType) => void;
   fieldTypes?: FieldTypesWithExternalType | null;
 }) => {
   let fields: Field[] = [];
@@ -340,7 +417,7 @@ const ChartFormContainer = ({
   }
 
   return (
-    <ChartFormContext.Provider value={{ fields, saveForm: debouncedSave }}>
+    <ChartFormContext value={{ fields, saveForm: debouncedSave }}>
       <Form {...form}>
         <form onSubmit={(e) => e.preventDefault()} onChange={debouncedSave}>
           <Tabs defaultValue="data">
@@ -371,6 +448,6 @@ const ChartFormContainer = ({
           </Tabs>
         </form>
       </Form>
-    </ChartFormContext.Provider>
+    </ChartFormContext>
   );
 };

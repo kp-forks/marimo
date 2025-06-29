@@ -1,27 +1,27 @@
 /* Copyright 2024 Marimo. All rights reserved. */
 
 import {
-  LineChartIcon,
-  BarChartIcon,
-  PieChartIcon,
-  SigmaIcon,
-  HashIcon,
-  BaselineIcon,
   AlignCenterVerticalIcon,
+  AreaChartIcon,
   ArrowDownToLineIcon,
   ArrowUpToLineIcon,
+  BarChartIcon,
+  BaselineIcon,
+  ChartColumn,
+  ChartNoAxesColumn,
   ChartScatterIcon,
+  HashIcon,
+  LineChartIcon,
+  PieChartIcon,
+  RulerDimensionLine,
+  SigmaIcon,
   SquareFunctionIcon,
   TableIcon,
-  AreaChartIcon,
-  ChartNoAxesColumn,
-  ChartColumn,
-  RulerDimensionLine,
 } from "lucide-react";
-import type { ColorScheme } from "vega";
 import type {
   AggregationFn,
   ChartType,
+  ColorScheme,
   SelectableDataType,
   TimeUnit,
 } from "./types";

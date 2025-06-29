@@ -1,14 +1,14 @@
 /* Copyright 2024 Marimo. All rights reserved. */
-import React, { useContext } from "react";
-import { ColumnChartSpecModel } from "./chart-spec-model";
-import { useTheme } from "@/theme/useTheme";
-import { prettyNumber, prettyScientificNumber } from "@/utils/numbers";
-import { prettyDate } from "@/utils/dates";
-import { DelayMount } from "../utils/delay-mount";
-import { ChartSkeleton } from "../charts/chart-skeleton";
-import { logNever } from "@/utils/assertNever";
-import { DatePopover } from "./date-popover";
+import React, { Suspense } from "react";
 import { createBatchedLoader } from "@/plugins/impl/vega/batched";
+import { useTheme } from "@/theme/useTheme";
+import { logNever } from "@/utils/assertNever";
+import { prettyDate } from "@/utils/dates";
+import { prettyNumber, prettyScientificNumber } from "@/utils/numbers";
+import { ChartSkeleton } from "../charts/chart-skeleton";
+import { DelayMount } from "../utils/delay-mount";
+import { ColumnChartSpecModel } from "./chart-spec-model";
+import { DatePopover } from "./date-popover";
 
 export const ColumnChartContext = React.createContext<
   ColumnChartSpecModel<unknown>
@@ -29,28 +29,31 @@ const batchedLoader = createBatchedLoader();
 export const TableColumnSummary = <TData, TValue>({
   columnId,
 }: Props<TData, TValue>) => {
-  const chartSpecModel = useContext(ColumnChartContext);
+  const chartSpecModel = React.use(ColumnChartContext);
   const { theme } = useTheme();
-  const { spec, type, summary } = chartSpecModel.getHeaderSummary(columnId);
+  const { spec, type, stats } = chartSpecModel.getHeaderSummary(columnId);
   let chart: React.ReactNode = null;
   if (spec) {
+    const skeleton = <ChartSkeleton seed={columnId} width={80} height={40} />;
     chart = (
       <DelayMount
         milliseconds={200}
         visibility={true}
         rootMargin="200px"
-        fallback={<ChartSkeleton seed={columnId} width={80} height={40} />}
+        fallback={skeleton}
       >
-        <LazyVegaLite
-          spec={spec}
-          width={70}
-          height={30}
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          loader={batchedLoader as any}
-          style={{ minWidth: "unset", maxHeight: "40px" }}
-          actions={false}
-          theme={theme === "dark" ? "dark" : "vox"}
-        />
+        <Suspense fallback={skeleton}>
+          <LazyVegaLite
+            spec={spec}
+            width={70}
+            height={30}
+            // @ts-expect-error - Our `loader.load` method is broader than VegaLite's typings but is functionally supported.
+            loader={batchedLoader}
+            style={{ minWidth: "unset", maxHeight: "40px" }}
+            actions={false}
+            theme={theme === "dark" ? "dark" : "vox"}
+          />
+        </Suspense>
       </DelayMount>
     );
   }
@@ -67,7 +70,7 @@ export const TableColumnSummary = <TData, TValue>({
   };
 
   const renderStats = () => {
-    if (!summary) {
+    if (!stats) {
       return null;
     }
 
@@ -78,18 +81,18 @@ export const TableColumnSummary = <TData, TValue>({
         if (!spec) {
           return (
             <div className="flex flex-col whitespace-pre">
-              <span>min: {renderDate(summary.min, type)}</span>
-              <span>max: {renderDate(summary.max, type)}</span>
-              <span>unique: {prettyNumber(summary.unique)}</span>
+              <span>min: {renderDate(stats.min, type)}</span>
+              <span>max: {renderDate(stats.max, type)}</span>
+              <span>unique: {prettyNumber(stats.unique)}</span>
             </div>
           );
         }
 
         return (
           <div className="flex justify-between w-full px-2 whitespace-pre">
-            <span>{renderDate(summary.min, type)}</span>
-            {summary.min === summary.max ? null : (
-              <span>-{renderDate(summary.max, type)}</span>
+            <span>{renderDate(stats.min, type)}</span>
+            {stats.min === stats.max ? null : (
+              <span>-{renderDate(stats.max, type)}</span>
             )}
           </div>
         );
@@ -101,17 +104,17 @@ export const TableColumnSummary = <TData, TValue>({
             <div className="flex flex-col whitespace-pre">
               <span>
                 min:{" "}
-                {typeof summary.min === "number"
-                  ? prettyScientificNumber(summary.min, { shouldRound: true })
-                  : summary.min}
+                {typeof stats.min === "number"
+                  ? prettyScientificNumber(stats.min, { shouldRound: true })
+                  : stats.min}
               </span>
               <span>
                 max:{" "}
-                {typeof summary.max === "number"
-                  ? prettyScientificNumber(summary.max, { shouldRound: true })
-                  : summary.max}
+                {typeof stats.max === "number"
+                  ? prettyScientificNumber(stats.max, { shouldRound: true })
+                  : stats.max}
               </span>
-              <span>unique: {prettyNumber(summary.unique)}</span>
+              <span>unique: {prettyNumber(stats.unique)}</span>
             </div>
           );
         }
@@ -123,8 +126,8 @@ export const TableColumnSummary = <TData, TValue>({
         if (!spec) {
           return (
             <div className="flex flex-col whitespace-pre">
-              <span>true: {prettyNumber(summary.true)}</span>
-              <span>false: {prettyNumber(summary.false)}</span>
+              <span>true: {prettyNumber(stats.true)}</span>
+              <span>false: {prettyNumber(stats.false)}</span>
             </div>
           );
         }
@@ -135,13 +138,13 @@ export const TableColumnSummary = <TData, TValue>({
       case "string":
         return (
           <div className="flex flex-col whitespace-pre">
-            <span>unique: {prettyNumber(summary.unique)}</span>
+            <span>unique: {prettyNumber(stats.unique)}</span>
           </div>
         );
       case "unknown":
         return (
           <div className="flex flex-col whitespace-pre">
-            <span>nulls: {prettyNumber(summary.nulls)}</span>
+            <span>nulls: {prettyNumber(stats.nulls)}</span>
           </div>
         );
       default:

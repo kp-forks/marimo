@@ -1,26 +1,27 @@
 /* Copyright 2024 Marimo. All rights reserved. */
 
-import React from "react";
 import { capitalize } from "lodash-es";
 import {
-  XIcon,
+  ArrowDownWideNarrowIcon,
+  ArrowUpWideNarrowIcon,
   PlusIcon,
   SquareFunctionIcon,
-  ArrowUpWideNarrowIcon,
-  ArrowDownWideNarrowIcon,
+  XIcon,
 } from "lucide-react";
+import React from "react";
 import { type Path, useFormContext, useWatch } from "react-hook-form";
 import type { z } from "zod";
-
-import type { DataType } from "@/core/kernel/messages";
-import type { ChartSchema } from "../schemas";
-
+import { DATA_TYPE_ICON } from "@/components/datasets/icons";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
+  FormControl,
   FormField,
   FormItem,
   FormLabel,
-  FormControl,
 } from "@/components/ui/form";
+import { DebouncedInput, DebouncedNumberInput } from "@/components/ui/input";
+import type { NumberFieldProps } from "@/components/ui/number-field";
 import {
   Select,
   SelectContent,
@@ -31,25 +32,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { DATA_TYPE_ICON } from "@/components/datasets/icons";
-import { DebouncedInput, DebouncedNumberInput } from "@/components/ui/input";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Button } from "@/components/ui/button";
-import { cn } from "@/utils/cn";
+import { Slider } from "@/components/ui/slider";
+import type { DataType } from "@/core/kernel/messages";
 import { Multiselect } from "@/plugins/impl/MultiselectPlugin";
-
-import {
-  AGGREGATION_FNS,
-  COMBINED_TIME_UNITS,
-  NONE_AGGREGATION,
-  SELECTABLE_DATA_TYPES,
-  type SelectableDataType,
-  SINGLE_TIME_UNITS,
-  SORT_TYPES,
-  STRING_AGGREGATION_FNS,
-  BIN_AGGREGATION,
-  type TimeUnit,
-} from "../types";
+import { cn } from "@/utils/cn";
+import { convertDataTypeToSelectable } from "../chart-spec/types";
 import {
   AGGREGATION_TYPE_DESCRIPTIONS,
   AGGREGATION_TYPE_ICON,
@@ -58,14 +45,25 @@ import {
   SCALE_TYPE_DESCRIPTIONS,
   TIME_UNIT_DESCRIPTIONS,
 } from "../constants";
-import { Slider } from "@/components/ui/slider";
-import { IconWithText } from "./layouts";
 import { useChartFormContext } from "../context";
-import type { NumberFieldProps } from "@/components/ui/number-field";
-import { convertDataTypeToSelectable } from "../chart-spec/types";
+import type { BinSchema, ChartSchema, ChartSchemaType } from "../schemas";
+import {
+  AGGREGATION_FNS,
+  BIN_AGGREGATION,
+  COMBINED_TIME_UNITS,
+  NONE_AGGREGATION,
+  SELECTABLE_DATA_TYPES,
+  type SelectableDataType,
+  SINGLE_TIME_UNITS,
+  SORT_TYPES,
+  STRING_AGGREGATION_FNS,
+  type TimeUnit,
+} from "../types";
+import { IconWithText } from "./layouts";
 
 const CLEAR_VALUE = "__clear__";
-type FieldName = Path<z.infer<typeof ChartSchema>>;
+
+export type FieldName = Path<z.infer<typeof ChartSchema>>;
 
 export interface Field {
   name: string;
@@ -75,6 +73,7 @@ export interface Field {
 export interface Tooltip {
   field: string;
   type: DataType;
+  bin?: z.infer<typeof BinSchema>;
 }
 
 export const ColumnSelector = ({
@@ -308,10 +307,12 @@ export const BooleanField = ({
   fieldName,
   label,
   className,
+  defaultValue,
 }: {
   fieldName: FieldName;
   label: string;
   className?: string;
+  defaultValue?: boolean;
 }) => {
   const form = useFormContext();
   return (
@@ -323,7 +324,7 @@ export const BooleanField = ({
           <FormLabel>{label}</FormLabel>
           <FormControl>
             <Checkbox
-              checked={field.value ?? false}
+              checked={field.value ?? defaultValue ?? false}
               onCheckedChange={field.onChange}
               className="w-4 h-4"
             />
@@ -805,7 +806,7 @@ export const SortField = ({
 export const BinFields: React.FC<{
   fieldName: "xAxis" | "yAxis" | "color";
 }> = ({ fieldName }) => {
-  const form = useFormContext<z.infer<typeof ChartSchema>>();
+  const form = useFormContext<ChartSchemaType>();
   const formValues = useWatch({ control: form.control });
   const isBinned = formValues[fieldName]?.bin?.binned;
 

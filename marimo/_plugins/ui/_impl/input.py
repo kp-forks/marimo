@@ -416,6 +416,7 @@ class range_slider(UIElement[list[Numeric], Sequence[Numeric]]):
         label (str): Markdown label for the element.
         on_change (Optional[Callable[[Sequence[Numeric]], None]]): Optional callback to run when this element's value changes.
         full_width (bool): Whether the input should take up the full width of its container.
+        disabled (bool, optional): Whether the slider is disabled. Defaults to False.
 
     Methods:
         from_series(series: DataFrameSeries, **kwargs: Any) -> range_slider:
@@ -439,6 +440,7 @@ class range_slider(UIElement[list[Numeric], Sequence[Numeric]]):
         label: str = "",
         on_change: Optional[Callable[[Sequence[Numeric]], None]] = None,
         full_width: bool = False,
+        disabled: bool = False,
     ) -> None:
         self.start: Numeric
         self.stop: Numeric
@@ -504,6 +506,7 @@ class range_slider(UIElement[list[Numeric], Sequence[Numeric]]):
                     "orientation": orientation,
                     "show-value": show_value,
                     "full-width": full_width,
+                    "disabled": disabled,
                 },
                 on_change=on_change,
             )
@@ -544,6 +547,7 @@ class range_slider(UIElement[list[Numeric], Sequence[Numeric]]):
                     "orientation": orientation,
                     "show-value": show_value,
                     "full-width": full_width,
+                    "disabled": disabled,
                 },
                 on_change=on_change,
             )
@@ -596,6 +600,7 @@ class checkbox(UIElement[bool, bool]):
         label (str, optional): Markdown label for the element. Defaults to "".
         on_change (Callable[[bool], None], optional): Optional callback to run when
             this element's value changes. Defaults to None.
+        disabled (bool, optional): Whether the checkbox is disabled. Defaults to False.
     """
 
     _name: Final[str] = "marimo-checkbox"
@@ -605,13 +610,16 @@ class checkbox(UIElement[bool, bool]):
         value: bool = False,
         *,
         label: str = "",
+        disabled: bool = False,
         on_change: Optional[Callable[[bool], None]] = None,
     ) -> None:
         super().__init__(
             component_name=checkbox._name,
             initial_value=value,
             label=label,
-            args={},
+            args={
+                "disabled": disabled,
+            },
             on_change=on_change,
         )
 
@@ -656,6 +664,7 @@ class radio(UIElement[Optional[str], Any]):
         label (str, optional): Optional markdown label for the element. Defaults to "".
         on_change (Callable[[Any], None], optional): Optional callback to run when
             this element's value changes. Defaults to None.
+        disabled (bool, optional): Whether the radio group is disabled. Defaults to False.
     """
 
     _name: Final[str] = "marimo-radio"
@@ -668,6 +677,7 @@ class radio(UIElement[Optional[str], Any]):
         *,
         label: str = "",
         on_change: Optional[Callable[[Any], None]] = None,
+        disabled: bool = False,
     ) -> None:
         if not isinstance(options, dict):
             if len(set(options)) != len(options):
@@ -681,6 +691,7 @@ class radio(UIElement[Optional[str], Any]):
             args={
                 "options": list(options.keys()),
                 "inline": inline,
+                "disabled": disabled,
             },
             on_change=on_change,
         )
@@ -963,6 +974,8 @@ class dropdown(UIElement[list[str], Any]):
             Defaults to None.
         searchable (bool, optional): Whether to enable search functionality.
             Defaults to False.
+            If the number of options is greater than 1000, this will be set to True,
+            automatically.
         label (str, optional): Markdown label for the element. Defaults to "".
         on_change (Callable[[Any], None], optional): Optional callback to run when
             this element's value changes. Defaults to None.
@@ -970,7 +983,7 @@ class dropdown(UIElement[list[str], Any]):
             of its container. Defaults to False.
     """
 
-    _MAX_OPTIONS: Final[int] = 1000
+    _FORCE_SEARCHABLE: Final[int] = 1000
     _name: Final[str] = "marimo-dropdown"
     _selected_key: Optional[str] = None
     _RESERVED_OPTION: Final[str] = "--"
@@ -986,16 +999,10 @@ class dropdown(UIElement[list[str], Any]):
         on_change: Optional[Callable[[Any], None]] = None,
         full_width: bool = False,
     ) -> None:
-        if len(options) > dropdown._MAX_OPTIONS:
-            raise ValueError(
-                "The maximum number of dropdown options allowed "
-                f"is {dropdown._MAX_OPTIONS}, but your dropdown has "
-                f"{len(options)} options. "
-                "If you really want to expose that many options, consider "
-                "using `mo.ui.text()` to let the user type an option name, "
-                "and `mo.ui.table()` to present the options matching the "
-                "user's query.",
-            )
+        # Force searchable if there are too many options
+        # This makes the list 'virtualized' on the frontend
+        if len(options) > dropdown._FORCE_SEARCHABLE:
+            searchable = True
 
         if not isinstance(options, dict):
             options = {_to_option_name(option): option for option in options}

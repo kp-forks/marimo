@@ -1,41 +1,42 @@
 /* Copyright 2024 Marimo. All rights reserved. */
-import React, { useRef, useState } from "react";
-import type { CellId } from "@/core/cells/ids";
-import { ElapsedTime, formatElapsedTime } from "../editor/cell/CellStatus";
-import { Tooltip } from "@/components/ui/tooltip";
-import { compile } from "vega-lite";
+
+import { atom, useAtomValue, useSetAtom } from "jotai";
 import {
-  ChevronRight,
-  ChevronDown,
   ActivityIcon,
-  CirclePlayIcon,
+  ChevronDown,
+  ChevronRight,
   CircleCheck,
   CircleEllipsis,
+  CirclePlayIcon,
   CircleX,
 } from "lucide-react";
+import React, { type JSX, Suspense, useRef, useState } from "react";
 import type { SignalListeners, VisualizationSpec } from "react-vega";
+import useResizeObserver from "use-resize-observer";
+import { compile } from "vega-lite";
+import { Tooltip } from "@/components/ui/tooltip";
+import { useCellIds } from "@/core/cells/cells";
+import type { CellId } from "@/core/cells/ids";
+import { formatLogTimestamp } from "@/core/cells/logs";
 import {
-  type RunId,
-  runsAtom,
   type CellRun,
   type Run,
+  type RunId,
+  runsAtom,
   useRunsActions,
 } from "@/core/cells/runs";
-import { atom, useAtomValue, useSetAtom } from "jotai";
+import { type ResolvedTheme, useTheme } from "@/theme/useTheme";
+import { cn } from "@/utils/cn";
+import { ClearButton } from "../buttons/clear-button";
+import { ElapsedTime, formatElapsedTime } from "../editor/cell/CellStatus";
+import { PanelEmptyState } from "../editor/chrome/panels/empty-state";
 import { CellLink } from "../editor/links/cell-link";
-import { formatLogTimestamp } from "@/core/cells/logs";
-import { useCellIds } from "@/core/cells/cells";
 import {
   type ChartPosition,
   type ChartValues,
   createGanttBaseSpec,
   VEGA_HOVER_SIGNAL,
 } from "./tracing-spec";
-import { ClearButton } from "../buttons/clear-button";
-import { cn } from "@/utils/cn";
-import { PanelEmptyState } from "../editor/chrome/panels/empty-state";
-import { type ResolvedTheme, useTheme } from "@/theme/useTheme";
-import useResizeObserver from "use-resize-observer";
 
 const expandedRunsAtom = atom<Map<RunId, boolean>>(new Map<RunId, boolean>());
 
@@ -122,14 +123,16 @@ const Chart: React.FC<ChartProps> = (props: ChartProps) => {
   const { ref, width = 300 } = useResizeObserver<HTMLDivElement>();
   return (
     <div className={props.className} ref={ref}>
-      <LazyVega
-        spec={props.vegaSpec}
-        theme={props.theme === "dark" ? "dark" : undefined}
-        width={width - 50}
-        height={props.height}
-        signalListeners={props.signalListeners}
-        actions={false}
-      />
+      <Suspense>
+        <LazyVega
+          spec={props.vegaSpec}
+          theme={props.theme === "dark" ? "dark" : undefined}
+          width={width - 50}
+          height={props.height}
+          signalListeners={props.signalListeners}
+          actions={false}
+        />
+      </Suspense>
     </div>
   );
 };
