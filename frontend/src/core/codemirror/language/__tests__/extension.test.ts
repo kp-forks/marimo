@@ -1,16 +1,18 @@
 /* Copyright 2024 Marimo. All rights reserved. */
+
+import { EditorState } from "@codemirror/state";
+import { EditorView } from "@codemirror/view";
 import { describe, expect, it } from "vitest";
+import type { CellId } from "@/core/cells/ids";
+import { DUCKDB_ENGINE } from "@/core/datasets/engines";
+import { OverridingHotkeyProvider } from "@/core/hotkeys/hotkeys";
+import { cellConfigExtension } from "../../config/extension";
 import {
   adaptiveLanguageConfiguration,
   getInitialLanguageAdapter,
   languageAdapterState,
   switchLanguage,
 } from "../extension";
-import { EditorState } from "@codemirror/state";
-import { OverridingHotkeyProvider } from "@/core/hotkeys/hotkeys";
-import { EditorView } from "@codemirror/view";
-import type { CellId } from "@/core/cells/ids";
-import { cellConfigExtension } from "../../config/extension";
 import { languageMetadataField } from "../metadata";
 
 function createState(content: string, selection?: { anchor: number }) {
@@ -189,7 +191,7 @@ describe("switchLanguage", () => {
       {
         "commentLines": [],
         "dataframeName": "_df",
-        "engine": "__marimo_duckdb",
+        "engine": "${DUCKDB_ENGINE}",
         "quotePrefix": "f",
         "showOutput": true,
       }
@@ -227,7 +229,7 @@ describe("switchLanguage", () => {
     expect(mockEditor.state.field(languageMetadataField)).toEqual({
       commentLines: [],
       dataframeName: "_df",
-      engine: "__marimo_duckdb",
+      engine: DUCKDB_ENGINE,
       quotePrefix: "f",
       showOutput: true,
     });

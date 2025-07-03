@@ -1,10 +1,28 @@
 /* Copyright 2024 Marimo. All rights reserved. */
+import type { Scale } from "vega-lite/build/src/scale";
+
+/**
+ * Valid string-based color scheme options from
+ * Vega-Lite `Scale["scheme"]` (aka `vega.ColorScheme`).
+ */
+export type ColorScheme = NonNullable<Scale["scheme"] & string>;
 
 /**
  * Similar to VegaLite's ScaleType, https://vega.github.io/vega-lite/docs/scale.html#type
  */
 export const SELECTABLE_DATA_TYPES = ["number", "string", "temporal"] as const;
 export type SelectableDataType = (typeof SELECTABLE_DATA_TYPES)[number];
+
+/**
+ * Used for adding data types in Altair encoding
+ */
+export const DATA_TYPE_LETTERS: Record<SelectableDataType, string> = {
+  number: "Q",
+  string: "N",
+  temporal: "T",
+} as const;
+export type DataTypeLetter =
+  (typeof DATA_TYPE_LETTERS)[keyof typeof DATA_TYPE_LETTERS];
 
 /**
  * Similar to VegaLite's TimeUnit, https://vega.github.io/vega-lite/docs/timeunit.html
@@ -50,14 +68,13 @@ export type TimeUnitTooltip = (typeof TIME_UNIT_TOOLTIPS)[number];
 export const SORT_TYPES = ["ascending", "descending"] as const;
 export type SortType = (typeof SORT_TYPES)[number];
 
-export const NONE_AGGREGATION = "none";
+export const NONE_VALUE = "none";
 export const BIN_AGGREGATION = "bin"; // We use this not to aggregate, but to bin
 
 /**
  * Subset of VegaLite's AggregateOp, https://vega.github.io/vega-lite/docs/aggregate.html#op
  */
-export const AGGREGATION_FNS = [
-  NONE_AGGREGATION,
+export const VALID_AGGREGATION_FNS = [
   "count",
   "sum",
   "mean",
@@ -70,14 +87,19 @@ export const AGGREGATION_FNS = [
   "stdevp",
   "variance",
   "variancep",
+];
+export const AGGREGATION_FNS = [
+  NONE_VALUE,
   BIN_AGGREGATION,
+  ...VALID_AGGREGATION_FNS,
 ] as const;
 export type AggregationFn = (typeof AGGREGATION_FNS)[number];
+export type ValidAggregationFn = (typeof VALID_AGGREGATION_FNS)[number];
 
 /*
  * Subset of AGGREGATION_FNS that are valid for string data types
  */
-export const STRING_AGGREGATION_FNS: AggregationFn[] = [
+export const STRING_AGGREGATION_FNS: ValidAggregationFn[] = [
   "none",
   "count",
   "distinct",
@@ -97,3 +119,6 @@ export const ChartType = {
 } as const;
 export type ChartType = (typeof ChartType)[keyof typeof ChartType];
 export const CHART_TYPES = Object.values(ChartType);
+
+export const COLOR_BY_FIELDS = ["X", "Y", "Color", NONE_VALUE] as const;
+export type ColorByField = (typeof COLOR_BY_FIELDS)[number];

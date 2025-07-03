@@ -1,23 +1,22 @@
 /* Copyright 2024 Marimo. All rights reserved. */
 
-import { ColumnSelector } from "../components/form-fields";
-import { FormSectionHorizontalRule, Title } from "../components/layouts";
 import { useFormContext, useWatch } from "react-hook-form";
 import { isFieldSet } from "../chart-spec/spec";
-import type { ChartSchema } from "../schemas";
-import type { z } from "zod";
+import { convertDataTypeToSelectable } from "../chart-spec/types";
 import {
-  DataTypeSelect,
   AggregationSelect,
+  ColumnSelector,
+  DataTypeSelect,
   NumberField,
 } from "../components/form-fields";
-import { useChartFormContext } from "../context";
-import { OtherOptions } from "./common-chart";
-import { convertDataTypeToSelectable } from "../chart-spec/types";
+import { FormSectionHorizontalRule, Title } from "../components/layouts";
 import { EMPTY_VALUE } from "../constants";
+import { useChartFormContext } from "../context";
+import type { ChartSchemaType } from "../schemas";
+import { OtherOptions } from "./common-chart";
 
 export const PieForm: React.FC = () => {
-  const form = useFormContext<z.infer<typeof ChartSchema>>();
+  const form = useFormContext<ChartSchemaType>();
   const { fields } = useChartFormContext();
 
   const formValues = useWatch({ control: form.control });

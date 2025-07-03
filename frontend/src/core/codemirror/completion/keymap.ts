@@ -1,11 +1,15 @@
 /* Copyright 2024 Marimo. All rights reserved. */
-import { Prec, type Extension } from "@codemirror/state";
+
 import {
+  acceptCompletion,
   closeCompletion,
   completionKeymap as defaultCompletionKeymap,
+  moveCompletionSelection,
 } from "@codemirror/autocomplete";
-import { keymap } from "@codemirror/view";
+import { type Extension, Prec } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
+import { keymap } from "@codemirror/view";
+import { isInVimMode } from "../utils";
 
 export function completionKeymap(): Extension {
   const withoutEscape = defaultCompletionKeymap.filter(
@@ -13,9 +17,12 @@ export function completionKeymap(): Extension {
   );
 
   const closeCompletionAndPropagate = (view: EditorView) => {
-    closeCompletion(view);
-    // Return false to propagate the Escape key
-    return false;
+    const status = closeCompletion(view);
+    // When in vim mode, we need to propagate Escape to exit insert mode.
+    if (isInVimMode(view)) {
+      return false;
+    }
+    return status;
   };
 
   return Prec.highest(
@@ -31,6 +38,34 @@ export function completionKeymap(): Extension {
       {
         key: "Escape",
         run: closeCompletionAndPropagate,
+      },
+      // Vim-specific completion keybindings
+      {
+        key: "Ctrl-y",
+        run: (view) => {
+          if (isInVimMode(view)) {
+            return acceptCompletion(view);
+          }
+          return false;
+        },
+      },
+      {
+        key: "Ctrl-n",
+        run: (view) => {
+          if (isInVimMode(view)) {
+            return moveCompletionSelection(true)(view);
+          }
+          return false;
+        },
+      },
+      {
+        key: "Ctrl-p",
+        run: (view) => {
+          if (isInVimMode(view)) {
+            return moveCompletionSelection(false)(view);
+          }
+          return false;
+        },
       },
     ]),
   );

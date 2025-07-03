@@ -1,46 +1,146 @@
 /* Copyright 2024 Marimo. All rights reserved. */
 
-import { ChevronDown, Loader2 } from "lucide-react";
-import { capitalize } from "lodash-es";
 import * as SelectPrimitive from "@radix-ui/react-select";
+import { capitalize } from "lodash-es";
+import { ChevronDown, Loader2 } from "lucide-react";
+import React from "react";
+import { useFormContext, useWatch } from "react-hook-form";
+import type { z } from "zod";
+import { buttonVariants } from "@/components/ui/button";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectValue,
 } from "@/components/ui/select";
-import { CHART_TYPE_ICON, COUNT_FIELD, EMPTY_VALUE } from "../constants";
+import type { DataType } from "@/core/kernel/messages";
 import { ErrorBanner } from "@/plugins/impl/common/error-banner";
-import { buttonVariants } from "@/components/ui/button";
-import { useFormContext, useWatch } from "react-hook-form";
-import type { z } from "zod";
-import type { ChartSchema } from "../schemas";
 import { isFieldSet } from "../chart-spec/spec";
-import {
-  ColumnSelector,
-  AggregationSelect,
-  DataTypeSelect,
-  TimeUnitSelect,
-  BooleanField,
-  SortField,
-  NumberField,
-  BinFields,
-} from "./form-fields";
-import { CHART_TYPES, type ChartType } from "../types";
-import React from "react";
-import { FieldSection, Title } from "./layouts";
-import { useChartFormContext } from "../context";
 import { convertDataTypeToSelectable } from "../chart-spec/types";
+import {
+  CHART_TYPE_ICON,
+  COUNT_FIELD,
+  DEFAULT_AGGREGATION,
+  DEFAULT_MAX_BINS_FACET,
+  type EMPTY_VALUE,
+} from "../constants";
+import { useChartFormContext } from "../context";
+import type { ChartSchema } from "../schemas";
+import {
+  type AggregationFn,
+  CHART_TYPES,
+  ChartType,
+  type SelectableDataType,
+} from "../types";
+import {
+  AggregationSelect,
+  BinFields,
+  BooleanField,
+  ColumnSelector,
+  DataTypeSelect,
+  type FieldName,
+  NumberField,
+  SortField,
+  TimeUnitSelect,
+} from "./form-fields";
+import { FieldSection, Title } from "./layouts";
+
+type SelectedDataType = SelectableDataType | typeof EMPTY_VALUE;
+type FieldDataType = DataType | typeof EMPTY_VALUE;
+
+// Utility functions for field type checking
+function isNonCountField(field?: { field?: string }) {
+  return isFieldSet(field?.field) && field?.field !== COUNT_FIELD;
+}
+
+function isStringField(field?: {
+  field?: string;
+  selectedDataType?: SelectedDataType;
+}) {
+  return field?.selectedDataType === "string" && isNonCountField(field);
+}
+
+function isNumberField(field?: {
+  field?: string;
+  selectedDataType?: SelectedDataType;
+}) {
+  return field?.selectedDataType === "number" && isNonCountField(field);
+}
+
+function isTemporalField(field?: {
+  field?: string;
+  selectedDataType?: SelectedDataType;
+}) {
+  return field?.selectedDataType === "temporal" && isNonCountField(field);
+}
+
+function isNonTemporalField(field?: {
+  field?: string;
+  selectedDataType?: SelectedDataType;
+}) {
+  return field?.selectedDataType !== "temporal" && isNonCountField(field);
+}
+
+// Helper to determine inferred and selected data types
+function getColumnDataTypes(column?: {
+  type?: FieldDataType;
+  selectedDataType?: SelectedDataType;
+}) {
+  const inferredDataType = column?.type
+    ? convertDataTypeToSelectable(column.type)
+    : "string";
+
+  return {
+    inferredDataType,
+    selectedDataType: column?.selectedDataType || inferredDataType,
+  };
+}
+
+const ColumnSelectorWithAggregation: React.FC<{
+  columnFieldName: FieldName;
+  column?: {
+    field?: string;
+    type?: FieldDataType;
+    selectedDataType?: SelectedDataType;
+  };
+  defaultAggregation?: AggregationFn;
+  columns: Array<{ name: string; type: DataType }>;
+  binFieldName: FieldName;
+}> = ({
+  columnFieldName,
+  column,
+  columns,
+  binFieldName,
+  defaultAggregation,
+}) => {
+  const { selectedDataType } = getColumnDataTypes(column);
+
+  return (
+    <div className="flex flex-row justify-between">
+      <ColumnSelector fieldName={columnFieldName} columns={columns} />
+      {isNonTemporalField(column) && (
+        <AggregationSelect
+          fieldName={
+            columnFieldName.replace(".field", ".aggregate") as FieldName
+          }
+          selectedDataType={selectedDataType}
+          binFieldName={binFieldName}
+          defaultAggregation={defaultAggregation}
+        />
+      )}
+    </div>
+  );
+};
 
 export const ChartLoadingState: React.FC = () => (
-  <div className="flex items-center gap-2 justify-center h-full w-full">
+  <div className="flex items-center gap-2 justify-center">
     <Loader2 className="w-10 h-10 animate-spin" strokeWidth={1} />
     <span>Loading chart...</span>
   </div>
 );
 
 export const ChartErrorState: React.FC<{ error: Error }> = ({ error }) => (
-  <div className="flex items-center justify-center h-full w-full">
+  <div className="flex items-center justify-center">
     <ErrorBanner error={error} />
   </div>
 );
@@ -91,58 +191,43 @@ export const XAxis: React.FC = () => {
   const context = useChartFormContext();
 
   const xColumn = formValues.general?.xColumn;
-  const xColumnExists = isFieldSet(xColumn?.field);
+  const { inferredDataType } = getColumnDataTypes(xColumn);
 
-  const inferredXDataType = xColumn?.type
-    ? convertDataTypeToSelectable(xColumn.type)
-    : "string";
-
-  const selectedXDataType = xColumn?.selectedDataType || inferredXDataType;
-  const isXCountField = xColumn?.field === COUNT_FIELD;
-
-  const shouldShowXAggregation =
-    xColumnExists && selectedXDataType !== "temporal" && !isXCountField;
-
-  const shouldShowXTimeUnit =
-    xColumnExists && selectedXDataType === "temporal" && !isXCountField;
+  const allowSorting =
+    context.chartType === ChartType.LINE ||
+    context.chartType === ChartType.BAR ||
+    context.chartType === ChartType.AREA;
 
   return (
     <FieldSection>
       <Title text="X-Axis" />
-      <div className="flex flex-row justify-between">
-        <ColumnSelector
-          fieldName="general.xColumn.field"
-          columns={context.fields}
-        />
-        {shouldShowXAggregation && (
-          <AggregationSelect
-            fieldName="general.xColumn.aggregate"
-            selectedDataType={selectedXDataType}
-            binFieldName="xAxis.bin.binned"
-          />
-        )}
-      </div>
-      {xColumnExists && !isXCountField && (
+      <ColumnSelectorWithAggregation
+        columnFieldName="general.xColumn.field"
+        column={xColumn}
+        columns={context.fields}
+        binFieldName="xAxis.bin.binned"
+      />
+      {isNonCountField(xColumn) && (
         <DataTypeSelect
           label="Data Type"
           fieldName="general.xColumn.selectedDataType"
-          defaultValue={inferredXDataType}
+          defaultValue={inferredDataType}
         />
       )}
-      {shouldShowXTimeUnit && (
+      {isTemporalField(xColumn) && (
         <TimeUnitSelect
           fieldName="general.xColumn.timeUnit"
           label="Time Resolution"
         />
       )}
-      {xColumnExists && !isXCountField && (
+      {isNonCountField(xColumn) && allowSorting && (
         <>
           <SortField
             fieldName="general.xColumn.sort"
             label="Sort"
             defaultValue={formValues.general?.xColumn?.sort}
           />
-          <BinFields fieldName="xAxis" />
+          {isNumberField(xColumn) && <BinFields fieldName="xAxis" />}
         </>
       )}
     </FieldSection>
@@ -158,45 +243,36 @@ export const YAxis: React.FC = () => {
   const yColumnExists = isFieldSet(yColumn?.field);
   const xColumn = formValues.general?.xColumn;
   const xColumnExists = isFieldSet(xColumn?.field);
+  const { inferredDataType } = getColumnDataTypes(yColumn);
 
-  const inferredYDataType = yColumn?.type
-    ? convertDataTypeToSelectable(yColumn.type)
-    : "string";
-
-  const selectedYDataType = yColumn?.selectedDataType || inferredYDataType;
-  const isYCountField = yColumn?.field === COUNT_FIELD;
-
-  const shouldShowYAggregation =
-    yColumnExists && selectedYDataType !== "temporal" && !isYCountField;
-
-  const shouldShowYTimeUnit =
-    yColumnExists && selectedYDataType === "temporal" && !isYCountField;
+  let defaultAggregation: AggregationFn | undefined;
+  if (isNumberField(yColumn)) {
+    // Set default for perf reasons
+    defaultAggregation = DEFAULT_AGGREGATION;
+  } else if (isStringField(yColumn)) {
+    // Y-columns tend to be measurements, so we default to count
+    defaultAggregation = "count";
+  }
 
   return (
     <FieldSection>
       <Title text="Y-Axis" />
-      <div className="flex flex-row justify-between">
-        <ColumnSelector
-          fieldName="general.yColumn.field"
-          columns={context.fields}
-        />
-        {shouldShowYAggregation && (
-          <AggregationSelect
-            fieldName="general.yColumn.aggregate"
-            selectedDataType={selectedYDataType}
-            binFieldName="yAxis.bin.binned"
-          />
-        )}
-      </div>
+      <ColumnSelectorWithAggregation
+        columnFieldName="general.yColumn.field"
+        column={yColumn}
+        columns={context.fields}
+        binFieldName="yAxis.bin.binned"
+        defaultAggregation={defaultAggregation}
+      />
 
-      {yColumnExists && !isYCountField && (
+      {isNonCountField(yColumn) && (
         <DataTypeSelect
           label="Data Type"
           fieldName="general.yColumn.selectedDataType"
-          defaultValue={inferredYDataType}
+          defaultValue={inferredDataType}
         />
       )}
-      {shouldShowYTimeUnit && (
+      {isTemporalField(yColumn) && (
         <TimeUnitSelect
           fieldName="general.yColumn.timeUnit"
           label="Time Resolution"
@@ -205,6 +281,7 @@ export const YAxis: React.FC = () => {
       {yColumnExists && xColumnExists && (
         <BooleanField fieldName="general.horizontal" label="Invert axis" />
       )}
+      {isNumberField(yColumn) && <BinFields fieldName="yAxis" />}
     </FieldSection>
   );
 };
@@ -213,27 +290,20 @@ export const ColorByAxis: React.FC = () => {
   const { fields } = useChartFormContext();
   const form = useFormContext<z.infer<typeof ChartSchema>>();
   const formValues = useWatch({ control: form.control });
+  const colorByColumn = formValues.general?.colorByColumn;
 
-  let selectedColorByDataType =
-    formValues.general?.colorByColumn?.selectedDataType;
-  if (selectedColorByDataType === EMPTY_VALUE || !selectedColorByDataType) {
-    selectedColorByDataType = "string";
-  }
+  const showBinFields = isNumberField(colorByColumn);
 
   return (
     <FieldSection>
       <Title text="Color by" />
-      <div className="flex flex-row justify-between">
-        <ColumnSelector
-          fieldName="general.colorByColumn.field"
-          columns={fields}
-        />
-        <AggregationSelect
-          fieldName="general.colorByColumn.aggregate"
-          selectedDataType={selectedColorByDataType}
-          binFieldName="color.bin.binned"
-        />
-      </div>
+      <ColumnSelectorWithAggregation
+        columnFieldName="general.colorByColumn.field"
+        column={colorByColumn}
+        columns={fields}
+        binFieldName="color.bin.binned"
+      />
+      {showBinFields && <BinFields fieldName="color" />}
     </FieldSection>
   );
 };
@@ -248,14 +318,7 @@ export const Facet: React.FC = () => {
   const renderField = (facet: "column" | "row") => {
     const field = formValues.general?.facet?.[facet];
     const fieldExists = isFieldSet(field?.field);
-
-    const inferredDataType = field?.type
-      ? convertDataTypeToSelectable(field.type)
-      : "string";
-    const selectedDataType = field?.selectedDataType || inferredDataType;
-
-    const shouldShowTimeUnit = fieldExists && selectedDataType === "temporal";
-    const canShowBin = fieldExists && selectedDataType === "number";
+    const { inferredDataType } = getColumnDataTypes(field);
 
     const linkFieldName =
       facet === "row"
@@ -278,22 +341,24 @@ export const Facet: React.FC = () => {
               fieldName={`general.facet.${facet}.selectedDataType`}
               defaultValue={inferredDataType}
             />
-            {shouldShowTimeUnit && (
+            {isTemporalField(field) && (
               <TimeUnitSelect
                 fieldName={`general.facet.${facet}.timeUnit`}
                 label="Time Resolution"
               />
             )}
-            {canShowBin && (
+            {isNumberField(field) && (
               <div className="flex flex-row justify-between">
                 <BooleanField
                   fieldName={`general.facet.${facet}.binned`}
                   label="Binned"
+                  defaultValue={true}
                 />
                 <NumberField
                   fieldName={`general.facet.${facet}.maxbins`}
                   label="Max Bins"
-                  placeholder="10"
+                  placeholder={DEFAULT_MAX_BINS_FACET.toString()}
+                  defaultValue={DEFAULT_MAX_BINS_FACET}
                 />
               </div>
             )}
@@ -301,6 +366,7 @@ export const Facet: React.FC = () => {
             <BooleanField
               fieldName={linkFieldName}
               label={`Link ${facet === "row" ? "Y" : "X"} Axes`}
+              defaultValue={true}
             />
           </>
         )}

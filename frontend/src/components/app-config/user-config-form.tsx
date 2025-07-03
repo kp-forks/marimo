@@ -1,10 +1,21 @@
 /* Copyright 2024 Marimo. All rights reserved. */
-import { SettingSubtitle, SQL_OUTPUT_SELECT_OPTIONS } from "./common";
 
-import React, { useRef } from "react";
-import { type FieldPath, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { atom, useAtom, useAtomValue, useSetAtom } from "jotai";
+import { get } from "lodash-es";
+import {
+  BrainIcon,
+  CpuIcon,
+  EditIcon,
+  FlaskConicalIcon,
+  FolderCog2,
+  MonitorIcon,
+  PackageIcon,
+} from "lucide-react";
+import React, { useRef } from "react";
+import { type FieldPath, useForm } from "react-hook-form";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Form,
   FormControl,
@@ -15,44 +26,33 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Button } from "@/components/ui/button";
+import { Kbd } from "@/components/ui/kbd";
 import { NativeSelect } from "@/components/ui/native-select";
 import { NumberField } from "@/components/ui/number-field";
-import { Kbd } from "@/components/ui/kbd";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CopilotConfig } from "@/core/codemirror/copilot/copilot-config";
 import { KEYMAP_PRESETS } from "@/core/codemirror/keymaps/keymaps";
+import { capabilitiesAtom } from "@/core/config/capabilities";
 import { configOverridesAtom, useUserConfig } from "@/core/config/config";
 import {
-  UserConfigSchema,
   PackageManagerNames,
   type UserConfig,
+  UserConfigSchema,
 } from "@/core/config/config-schema";
 import { getAppWidths } from "@/core/config/widths";
+import { marimoVersionAtom } from "@/core/meta/state";
 import { saveUserConfig } from "@/core/network/requests";
 import { isWasm } from "@/core/wasm/utils";
-import { THEMES } from "@/theme/useTheme";
-import { keyboardShortcutsAtom } from "../editor/controls/keyboard-shortcuts";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  EditIcon,
-  MonitorIcon,
-  PackageIcon,
-  CpuIcon,
-  BrainIcon,
-  FlaskConicalIcon,
-  FolderCog2,
-} from "lucide-react";
-import { ExternalLink } from "../ui/links";
-import { cn } from "@/utils/cn";
-import { KNOWN_AI_MODELS } from "./constants";
-import { Textarea } from "../ui/textarea";
-import { get } from "lodash-es";
-import { Tooltip } from "../ui/tooltip";
-import { getMarimoVersion } from "@/core/dom/marimo-tag";
-import { Badge } from "../ui/badge";
-import { capabilitiesAtom } from "@/core/config/capabilities";
 import { Banner } from "@/plugins/impl/common/error-banner";
+import { THEMES } from "@/theme/useTheme";
+import { cn } from "@/utils/cn";
+import { keyboardShortcutsAtom } from "../editor/controls/keyboard-shortcuts";
+import { Badge } from "../ui/badge";
+import { ExternalLink } from "../ui/links";
+import { Textarea } from "../ui/textarea";
+import { Tooltip } from "../ui/tooltip";
+import { SettingSubtitle, SQL_OUTPUT_SELECT_OPTIONS } from "./common";
+import { AWS_REGIONS, KNOWN_AI_MODELS } from "./constants";
 import { OptionalFeatures } from "./optional-features";
 
 const formItemClasses = "flex flex-row items-center space-x-1 space-y-0";
@@ -115,6 +115,7 @@ export const UserConfigForm: React.FC = () => {
     activeUserConfigCategoryAtom,
   );
   const capabilities = useAtomValue(capabilitiesAtom);
+  const marimoVersion = useAtomValue(marimoVersionAtom);
 
   // Create form
   const form = useForm<UserConfig>({
@@ -658,6 +659,34 @@ export const UserConfigForm: React.FC = () => {
                   </FormItem>
                 )}
               />
+              <FormField
+                control={form.control}
+                name="display.reference_highlighting"
+                render={({ field }) => (
+                  <div className="flex flex-col space-y-1">
+                    <FormItem className={formItemClasses}>
+                      <FormLabel>Reference highlighting</FormLabel>
+                      <FormControl>
+                        <Checkbox
+                          data-testid="reference-highlighting-checkbox"
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                      <IsOverridden
+                        userConfig={config}
+                        name="display.reference_highlighting"
+                      />
+                    </FormItem>
+
+                    <FormDescription>
+                      Visually emphasizes variables in a cell that are defined
+                      elsewhere in the notebook.
+                    </FormDescription>
+                  </div>
+                )}
+              />
             </SettingGroup>
             <SettingGroup title="Outputs">
               <FormField
@@ -1187,6 +1216,88 @@ export const UserConfigForm: React.FC = () => {
                   </div>
                 )}
               />
+
+              <p className="text-sm font-semibold mt-3">
+                AWS Bedrock Configuration
+              </p>
+              <p className="text-sm text-muted-secondary mb-2">
+                To use AWS Bedrock, you need to configure AWS credentials and
+                region. See the{" "}
+                <ExternalLink href="https://docs.marimo.io/guides/editor_features/ai_completion.html#aws-bedrock">
+                  documentation
+                </ExternalLink>{" "}
+                for more details.
+              </p>
+              <FormField
+                control={form.control}
+                disabled={isWasmRuntime}
+                name="ai.bedrock.region_name"
+                render={({ field }) => (
+                  <div className="flex flex-col space-y-1">
+                    <FormItem className={formItemClasses}>
+                      <FormLabel>AWS Region</FormLabel>
+                      <FormControl>
+                        <NativeSelect
+                          data-testid="bedrock-region-select"
+                          onChange={(e) => field.onChange(e.target.value)}
+                          value={
+                            typeof field.value === "string"
+                              ? field.value
+                              : "us-east-1"
+                          }
+                          disabled={field.disabled}
+                          className="inline-flex mr-2"
+                        >
+                          {AWS_REGIONS.map((option) => (
+                            <option value={option} key={option}>
+                              {option}
+                            </option>
+                          ))}
+                        </NativeSelect>
+                      </FormControl>
+                      <FormMessage />
+                      <IsOverridden
+                        userConfig={config}
+                        name="ai.bedrock.region_name"
+                      />
+                    </FormItem>
+                    <FormDescription>
+                      The AWS region where Bedrock service is available.
+                    </FormDescription>
+                  </div>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                disabled={isWasmRuntime}
+                name="ai.bedrock.profile_name"
+                render={({ field }) => (
+                  <div className="flex flex-col space-y-1">
+                    <FormItem className={formItemClasses}>
+                      <FormLabel>AWS Profile Name (Optional)</FormLabel>
+                      <FormControl>
+                        <Input
+                          data-testid="bedrock-profile-input"
+                          className="m-0 inline-flex"
+                          placeholder="default"
+                          {...field}
+                          value={field.value || ""}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                      <IsOverridden
+                        userConfig={config}
+                        name="ai.bedrock.profile_name"
+                      />
+                    </FormItem>
+                    <FormDescription>
+                      The AWS profile name from your ~/.aws/credentials file.
+                      Leave blank to use your default AWS credentials.
+                    </FormDescription>
+                  </div>
+                )}
+              />
             </SettingGroup>
 
             <SettingGroup title="AI Assist">
@@ -1259,7 +1370,10 @@ export const UserConfigForm: React.FC = () => {
                     <FormDescription>
                       If the model starts with "claude-", we will use your
                       Anthropic API key. If the model starts with "gemini-", we
-                      will use your Google AI API key. Otherwise, we will use
+                      will use your Google AI API key. If the model starts with
+                      a "bedrock/" prefix followed by a model id (e.g.,
+                      "bedrock/anthropic.claude-3-sonnet-20240229"), we will use
+                      your AWS Bedrock configuration. Otherwise, we will use
                       your OpenAI API key.
                     </FormDescription>
                   </div>
@@ -1324,28 +1438,6 @@ export const UserConfigForm: React.FC = () => {
                   <FormDescription>
                     Enable experimental "Edit with AI" tooltip when selecting
                     code.
-                  </FormDescription>
-                </div>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="experimental.table_charts"
-              render={({ field }) => (
-                <div className="flex flex-col gap-y-1">
-                  <FormItem className={formItemClasses}>
-                    <FormLabel className="font-normal">Table Charts</FormLabel>
-                    <FormControl>
-                      <Checkbox
-                        data-testid="data-table-plugin-checkbox"
-                        checked={field.value === true}
-                        onCheckedChange={field.onChange}
-                      />
-                    </FormControl>
-                  </FormItem>
-                  <FormDescription>
-                    Enable experimental charting feature on tables. Data is
-                    saved in local storage. May not be performant.
                   </FormDescription>
                 </div>
               )}
@@ -1425,7 +1517,7 @@ export const UserConfigForm: React.FC = () => {
             ))}
 
             <div className="p-2 text-xs text-muted-foreground self-start">
-              <span>Version: {getMarimoVersion()}</span>
+              <span>Version: {marimoVersion}</span>
             </div>
 
             <div className="flex-1" />
@@ -1443,7 +1535,10 @@ export const UserConfigForm: React.FC = () => {
 const SettingGroup = ({
   title,
   children,
-}: { title: string; children: React.ReactNode }) => {
+}: {
+  title: string;
+  children: React.ReactNode;
+}) => {
   return (
     <div className="flex flex-col gap-4 pb-4">
       <SettingSubtitle>{title}</SettingSubtitle>
@@ -1455,7 +1550,10 @@ const SettingGroup = ({
 const IsOverridden = ({
   userConfig,
   name,
-}: { userConfig: UserConfig; name: FieldPath<UserConfig> }) => {
+}: {
+  userConfig: UserConfig;
+  name: FieldPath<UserConfig>;
+}) => {
   const currentValue = get(userConfig, name);
   const overrides = useAtomValue(configOverridesAtom);
   const overriddenValue = get(overrides as UserConfig, name);

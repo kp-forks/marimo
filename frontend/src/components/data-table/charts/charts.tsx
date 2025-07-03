@@ -1,41 +1,53 @@
 /* Copyright 2024 Marimo. All rights reserved. */
 
-import React, { useState, useMemo } from "react";
-import { Button } from "@/components/ui/button";
-import { TableIcon, XIcon, DatabaseIcon, PaintRollerIcon } from "lucide-react";
-import { Tabs, TabsTrigger, TabsList, TabsContent } from "@/components/ui/tabs";
-import type { z } from "zod";
-import { useForm, type UseFormReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { ChartSchema } from "./schemas";
-import { Form } from "@/components/ui/form";
-import { getDefaults } from "@/components/forms/form-utils";
 import { useAtom } from "jotai";
-import type { CellId } from "@/core/cells/ids";
-import { getChartTabName, type TabName, tabsStorageAtom } from "./storage";
-import type { FieldTypesWithExternalType } from "../types";
-import { useAsyncData } from "@/hooks/useAsyncData";
-import { vegaLoadData } from "@/plugins/impl/vega/loader";
-import type { GetDataUrl } from "@/plugins/impl/DataTablePlugin";
-import type { Field } from "./components/form-fields";
-import { useDebouncedCallback } from "@/hooks/useDebounce";
-import { inferFieldTypes } from "../columns";
-import { LazyChart } from "./lazy-chart";
 import {
-  ChartLoadingState,
+  ChartColumnIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  CodeIcon,
+  DatabaseIcon,
+  PaintRollerIcon,
+  XIcon,
+} from "lucide-react";
+import type { JSX } from "react";
+import React, { useMemo, useState } from "react";
+import { type UseFormReturn, useForm } from "react-hook-form";
+import useResizeObserver from "use-resize-observer";
+import { PythonIcon } from "@/components/editor/cell/code/icons";
+import { Button } from "@/components/ui/button";
+import { Form } from "@/components/ui/form";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import type { CellId } from "@/core/cells/ids";
+import { useAsyncData } from "@/hooks/useAsyncData";
+import { useDebouncedCallback } from "@/hooks/useDebounce";
+import type { GetDataUrl } from "@/plugins/impl/DataTablePlugin";
+import { vegaLoadData } from "@/plugins/impl/vega/loader";
+import { useTheme } from "@/theme/useTheme";
+import { inferFieldTypes } from "../columns";
+import type { FieldTypesWithExternalType } from "../types";
+import { generateAltairChartSnippet } from "./chart-spec/altair-generator";
+import { createSpecWithoutData } from "./chart-spec/spec";
+import {
   ChartErrorState,
+  ChartLoadingState,
   ChartTypeSelect,
 } from "./components/chart-items";
-import { ChartType } from "./types";
+import type { Field } from "./components/form-fields";
+import { CodeSnippet, TabContainer } from "./components/layouts";
+import { ChartFormContext } from "./context";
+import { CommonChartForm, StyleForm } from "./forms/common-chart";
 import { HeatmapForm } from "./forms/heatmap";
 import { PieForm } from "./forms/pie";
-import { CommonChartForm, StyleForm } from "./forms/common-chart";
-import { TabContainer } from "./components/layouts";
-import { ChartFormContext } from "./context";
+import { LazyChart } from "./lazy-chart";
+import { ChartSchema, type ChartSchemaType, getChartDefaults } from "./schemas";
+import { getChartTabName, type TabName, tabsStorageAtom } from "./storage";
+import { ChartType } from "./types";
 
 const NEW_CHART_TYPE = "bar" as ChartType;
 const DEFAULT_TAB_NAME = "table" as TabName;
-const CHART_HEIGHT = 300;
+const CHART_HEIGHT = 290;
 
 export interface TablePanelProps {
   cellId: CellId | null;
@@ -74,7 +86,7 @@ export const TablePanel: React.FC<TablePanelProps> = ({
       {
         tabName,
         chartType: NEW_CHART_TYPE,
-        config: getDefaults(ChartSchema),
+        config: getChartDefaults(),
       },
     ]);
 
@@ -100,7 +112,7 @@ export const TablePanel: React.FC<TablePanelProps> = ({
   const saveTabChart = (
     tabName: TabName,
     chartType: ChartType,
-    chartConfig: z.infer<typeof ChartSchema>,
+    chartConfig: ChartSchemaType,
   ) => {
     if (!cellId) {
       return;
@@ -152,7 +164,6 @@ export const TablePanel: React.FC<TablePanelProps> = ({
           value={DEFAULT_TAB_NAME}
           onClick={() => setSelectedTab(DEFAULT_TAB_NAME)}
         >
-          <TableIcon className="w-3 h-3 mr-2" />
           Table
         </TabsTrigger>
         {tabs.map((tab, idx) => (
@@ -186,7 +197,7 @@ export const TablePanel: React.FC<TablePanelProps> = ({
         {dataTable}
       </TabsContent>
       {tabs.map((tab, idx) => {
-        const saveChart = (formValues: z.infer<typeof ChartSchema>) => {
+        const saveChart = (formValues: ChartSchemaType) => {
           saveTabChart(tab.tabName, tab.chartType, formValues);
         };
         const saveChartType = (chartType: ChartType) => {
@@ -209,10 +220,12 @@ export const TablePanel: React.FC<TablePanelProps> = ({
   );
 };
 
+const CHART_PLACEHOLDER_CODE = "X and Y columns are not set";
+
 export const ChartPanel: React.FC<{
-  chartConfig: z.infer<typeof ChartSchema> | null;
+  chartConfig: ChartSchemaType | null;
   chartType: ChartType;
-  saveChart: (formValues: z.infer<typeof ChartSchema>) => void;
+  saveChart: (formValues: ChartSchemaType) => void;
   saveChartType: (chartType: ChartType) => void;
   getDataUrl?: GetDataUrl;
   fieldTypes?: FieldTypesWithExternalType | null;
@@ -224,15 +237,19 @@ export const ChartPanel: React.FC<{
   getDataUrl,
   fieldTypes,
 }) => {
-  const form = useForm<z.infer<typeof ChartSchema>>({
-    defaultValues: chartConfig ?? getDefaults(ChartSchema),
+  const { theme } = useTheme();
+  const form = useForm<ChartSchemaType>({
+    defaultValues: chartConfig ?? getChartDefaults(),
     resolver: zodResolver(ChartSchema),
   });
 
   const [selectedChartType, setSelectedChartType] =
     useState<ChartType>(chartType);
+  const [formCollapsed, setFormCollapsed] = useState(false);
 
-  const { data, loading, error } = useAsyncData(async () => {
+  const { ref: chartContainerRef } = useResizeObserver();
+
+  const { data, isPending, error } = useAsyncData(async () => {
     if (!getDataUrl) {
       return [];
     }
@@ -263,44 +280,138 @@ export const ChartPanel: React.FC<{
     return structuredClone(formValues);
   }, [formValues]);
 
+  const specWithoutData = createSpecWithoutData(
+    selectedChartType,
+    memoizedFormValues,
+    theme,
+    "container",
+    CHART_HEIGHT,
+  );
+
   // Prevent unnecessary re-renders of the chart
   const memoizedChart = useMemo(() => {
-    if (loading) {
+    if (isPending) {
       return <ChartLoadingState />;
     }
     if (error) {
       return <ChartErrorState error={error} />;
     }
     return (
-      <LazyChart
-        chartType={selectedChartType}
-        formValues={memoizedFormValues}
-        data={data}
-        width="container"
-        height={CHART_HEIGHT}
-      />
+      <LazyChart baseSpec={specWithoutData} data={data} height={CHART_HEIGHT} />
     );
-  }, [loading, error, memoizedFormValues, data, selectedChartType]);
+  }, [isPending, error, specWithoutData, data]);
+
+  const developmentMode = import.meta.env.DEV;
+
+  const renderChartDisplay = () => {
+    let altairCodeSnippet = CHART_PLACEHOLDER_CODE;
+    if (typeof specWithoutData !== "string") {
+      altairCodeSnippet = generateAltairChartSnippet(
+        specWithoutData,
+        "_df",
+        "_chart",
+      );
+    }
+
+    return (
+      <Tabs defaultValue="chart">
+        <div className="flex flex-row gap-1.5 items-center">
+          <TabsList>
+            <TabsTrigger value="chart" className="h-6">
+              <ChartColumnIcon className="text-muted-foreground mr-2 w-4 h-4" />
+              Chart
+            </TabsTrigger>
+            <TabsTrigger value="code" className="h-6">
+              <PythonIcon className="text-muted-foreground mr-2" />
+              Python code
+            </TabsTrigger>
+            {developmentMode && (
+              <>
+                <TabsTrigger value="formValues" className="h-6">
+                  <CodeIcon className="text-muted-foreground mr-2 w-4 h-4" />
+                  Form values (debug)
+                </TabsTrigger>
+                <TabsTrigger value="vegaSpec" className="h-6">
+                  <CodeIcon className="text-muted-foreground mr-2 w-4 h-4" />
+                  Vega spec (debug)
+                </TabsTrigger>
+              </>
+            )}
+          </TabsList>
+        </div>
+
+        <TabsContent value="chart" ref={chartContainerRef}>
+          {memoizedChart}
+        </TabsContent>
+        <TabsContent value="code">
+          <CodeSnippet
+            code={altairCodeSnippet}
+            insertNewCell={altairCodeSnippet !== CHART_PLACEHOLDER_CODE}
+            language="python"
+          />
+        </TabsContent>
+        {developmentMode && (
+          <>
+            <TabsContent value="formValues">
+              <CodeSnippet
+                code={JSON.stringify(formValues, null, 2)}
+                language="python"
+              />
+            </TabsContent>
+            <TabsContent value="vegaSpec">
+              <CodeSnippet
+                code={JSON.stringify(specWithoutData, null, 2)}
+                language="python"
+              />
+            </TabsContent>
+          </>
+        )}
+      </Tabs>
+    );
+  };
+
+  const chartForm = (
+    <>
+      <ChartTypeSelect
+        value={selectedChartType}
+        onValueChange={(value) => {
+          setSelectedChartType(value);
+          saveChartType(value);
+        }}
+      />
+
+      <ChartFormContainer
+        form={form}
+        saveChart={saveChart}
+        fieldTypes={fieldTypes}
+        chartType={selectedChartType}
+      />
+    </>
+  );
 
   return (
     <div className="flex flex-row gap-2 h-full rounded-md border pr-2">
-      <div className="flex flex-col gap-2 w-[300px] overflow-auto px-2 py-3 scrollbar-thin">
-        <ChartTypeSelect
-          value={selectedChartType}
-          onValueChange={(value) => {
-            setSelectedChartType(value);
-            saveChartType(value);
-          }}
-        />
-
-        <ChartFormContainer
-          form={form}
-          saveChart={saveChart}
-          fieldTypes={fieldTypes}
-          chartType={selectedChartType}
-        />
+      <div
+        className={`relative flex flex-col gap-2 overflow-auto px-2 py-3 scrollbar-thin transition-width duration-200 ${formCollapsed ? "w-8" : "w-[300px]"}`}
+      >
+        {!formCollapsed && chartForm}
+        <Button
+          variant="outline"
+          size="icon"
+          className="border-border ml-auto"
+          onClick={() => setFormCollapsed((prev) => !prev)}
+          title={formCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+        >
+          {formCollapsed ? (
+            <ChevronRightIcon className="w-4 h-5" />
+          ) : (
+            <ChevronLeftIcon className="w-4 h-5" />
+          )}
+        </Button>
       </div>
-      <div className="flex-1 overflow-auto h-full w-full">{memoizedChart}</div>
+      <div className="flex-1 overflow-auto h-full w-full mt-3">
+        {renderChartDisplay()}
+      </div>
     </div>
   );
 };
@@ -311,9 +422,9 @@ const ChartFormContainer = ({
   fieldTypes,
   chartType,
 }: {
-  form: UseFormReturn<z.infer<typeof ChartSchema>>;
+  form: UseFormReturn<ChartSchemaType>;
   chartType: ChartType;
-  saveChart: (formValues: z.infer<typeof ChartSchema>) => void;
+  saveChart: (formValues: ChartSchemaType) => void;
   fieldTypes?: FieldTypesWithExternalType | null;
 }) => {
   let fields: Field[] = [];
@@ -340,7 +451,7 @@ const ChartFormContainer = ({
   }
 
   return (
-    <ChartFormContext.Provider value={{ fields, saveForm: debouncedSave }}>
+    <ChartFormContext value={{ fields, saveForm: debouncedSave, chartType }}>
       <Form {...form}>
         <form onSubmit={(e) => e.preventDefault()} onChange={debouncedSave}>
           <Tabs defaultValue="data">
@@ -371,6 +482,6 @@ const ChartFormContainer = ({
           </Tabs>
         </form>
       </Form>
-    </ChartFormContext.Provider>
+    </ChartFormContext>
   );
 };

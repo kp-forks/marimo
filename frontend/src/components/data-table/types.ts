@@ -3,15 +3,29 @@
 import type { DataType } from "@/core/kernel/messages";
 import { Objects } from "@/utils/objects";
 
-export interface ColumnHeaderSummary {
-  column: string | number;
-  min?: number | string | undefined | null;
-  max?: number | string | undefined | null;
-  unique?: number | unknown[] | undefined | null;
-  nulls?: number | null;
-  true?: number | null;
-  false?: number | null;
-}
+export type ColumnName = string;
+
+export const ColumnHeaderStatsKeys = [
+  "total",
+  "nulls",
+  "unique",
+  "true",
+  "false",
+  "min",
+  "max",
+  "mean",
+  "median",
+  "std",
+  "p5",
+  "p25",
+  "p75",
+  "p95",
+];
+export type ColumnHeaderStatsKey = (typeof ColumnHeaderStatsKeys)[number];
+export type ColumnHeaderStats = Record<
+  ColumnHeaderStatsKey,
+  number | string | null
+>;
 
 export type FieldTypesWithExternalType = Array<
   [columnName: string, [dataType: DataType, externalType: string]]
@@ -31,6 +45,9 @@ export function toFieldTypes(
 export const SELECT_COLUMN_ID = "__select__";
 
 export const INDEX_COLUMN_NAME = "_marimo_row_id";
+
+export const TOO_MANY_ROWS = "too_many";
+export type TooManyRows = typeof TOO_MANY_ROWS;
 
 export type DataTableSelection =
   | "single"

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
 from typing import TYPE_CHECKING, Literal, Union, cast
 from unittest import mock
 
@@ -16,6 +15,7 @@ from marimo._config.manager import (
     MarimoConfigReader,
     MarimoConfigReaderWithOverrides,
 )
+from marimo._loggers import get_log_directory
 from marimo._messaging.ops import Alert
 from marimo._server.lsp import (
     BaseLspServer,
@@ -112,6 +112,8 @@ def test_pylsp_server():
         "--port",
         "8000",
         "--check-parent-process",
+        "--log-file",
+        str(get_log_directory() / "pylsp.log"),
     ]
     alert = server.missing_binary_alert()
     assert "Python LSP" in alert.title
@@ -120,7 +122,7 @@ def test_pylsp_server():
 def test_copilot_server():
     server = CopilotLspServer(port=8000)
     assert isinstance(server.validate_requirements(), (str, bool))
-    if Path(server._lsp_bin()).exists():
+    if server._lsp_bin().exists():
         assert "node" in server.get_command()
         assert str(8000) in server.get_command()
     else:

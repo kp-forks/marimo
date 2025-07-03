@@ -1,49 +1,61 @@
 /* Copyright 2024 Marimo. All rights reserved. */
+
 import type { TopLevelSpec } from "vega-lite";
-import type { ResolvedTheme } from "@/theme/useTheme";
-import type {
-  BinSchema,
-  ChartSchema,
-  AxisSchema,
-  RowFacet,
-  ColumnFacet,
-} from "../schemas";
-import { ChartType } from "../types";
-import type { z } from "zod";
 import type {
   ColorDef,
   Field,
   PolarDef,
   PositionDef,
 } from "vega-lite/build/src/channeldef";
-import type { ExprRef, SignalRef } from "vega";
-import type { TypedString } from "@/utils/typed";
-import { COUNT_FIELD, EMPTY_VALUE } from "../constants";
+import type { Encoding } from "vega-lite/build/src/encoding";
+import type { Resolve } from "vega-lite/build/src/resolve";
 import type { FacetFieldDef } from "vega-lite/build/src/spec/facet";
+import type { z } from "zod";
+import type { ResolvedTheme } from "@/theme/useTheme";
+import type { TypedString } from "@/utils/typed";
 import {
+  COUNT_FIELD,
+  DEFAULT_AGGREGATION,
+  DEFAULT_MAX_BINS_FACET,
+  DEFAULT_TIME_UNIT,
+  EMPTY_VALUE,
+} from "../constants";
+import type {
+  AxisSchema,
+  BinSchema,
+  ChartSchemaType,
+  ColumnFacet,
+  RowFacet,
+} from "../schemas";
+import { ChartType, type ValidAggregationFn } from "../types";
+import {
+  getAggregate,
   getBinEncoding,
   getColorEncoding,
   getColorInScale,
   getOffsetEncoding,
-  getAggregate,
 } from "./encodings";
-import { convertChartTypeToMark, convertDataTypeToVega } from "./types";
 import { getTooltips } from "./tooltips";
+import {
+  type BaseSpec,
+  convertChartTypeToMark,
+  convertDataTypeToVega,
+} from "./types";
 
 /**
  * Convert marimo chart configuration to Vega-Lite specification.
  */
 
 export type ErrorMessage = TypedString<"ErrorMessage">;
+export const X_AXIS_REQUIRED = "X-axis column is required" as ErrorMessage;
+export const Y_AXIS_REQUIRED = "Y-axis column is required" as ErrorMessage;
 
-export function createVegaSpec(
+export function createSpecWithoutData(
   chartType: ChartType,
-  data: object[],
-  formValues: z.infer<typeof ChartSchema>,
+  formValues: ChartSchemaType,
   theme: ResolvedTheme,
   width: number | "container",
   height: number,
-  // eslint-disable-next-line @typescript-eslint/no-redundant-type-constituents
 ): TopLevelSpec | ErrorMessage {
   const {
     xColumn,
@@ -53,18 +65,18 @@ export function createVegaSpec(
     stacking,
     title,
     facet,
-  } = formValues.general;
+  } = formValues.general ?? {};
 
   if (chartType === ChartType.PIE) {
-    return getPieChartSpec(data, formValues, theme, width, height);
+    return getPieChartSpec(formValues, theme, width, height);
   }
 
   // Validate required fields
   if (!isFieldSet(xColumn?.field)) {
-    return "X-axis column is required" as ErrorMessage;
+    return X_AXIS_REQUIRED;
   }
   if (!isFieldSet(yColumn?.field)) {
-    return "Y-axis column is required" as ErrorMessage;
+    return Y_AXIS_REQUIRED;
   }
 
   // Determine encoding keys based on chart type
@@ -80,38 +92,68 @@ export function createVegaSpec(
     chartType,
   );
 
+  let defaultYAggregation: ValidAggregationFn = DEFAULT_AGGREGATION;
+  if (yColumn?.selectedDataType === "string") {
+    defaultYAggregation = "count";
+  }
+
   const yEncoding = getAxisEncoding(
     yColumn,
     formValues.yAxis?.bin,
     getFieldLabel(formValues.yAxis?.label),
     colorByColumn?.field && !horizontal ? stacking : undefined,
     chartType,
+    defaultYAggregation,
   );
 
-  const rowFacet = facet?.row.field ? getFacetEncoding(facet.row) : undefined;
+  const rowFacet = facet?.row.field
+    ? getFacetEncoding(facet.row, chartType)
+    : undefined;
   const columnFacet = facet?.column.field
-    ? getFacetEncoding(facet.column)
+    ? getFacetEncoding(facet.column, chartType)
     : undefined;
 
-  // Create the final spec
+  const colorByEncoding = getColorEncoding(chartType, formValues);
+  const baseSpec = getBaseSpec(
+    chartType,
+    formValues,
+    theme,
+    width,
+    height,
+    title,
+  );
+  const baseEncoding: Encoding<Field> = {
+    [xEncodingKey]: horizontal ? yEncoding : xEncoding,
+    [yEncodingKey]: horizontal ? xEncoding : yEncoding,
+    xOffset: getOffsetEncoding(chartType, formValues),
+    color: colorByEncoding,
+    tooltip: getTooltips({
+      formValues,
+      xEncoding,
+      yEncoding,
+      colorByEncoding,
+    }),
+    ...(rowFacet && { row: rowFacet }),
+    ...(columnFacet && { column: columnFacet }),
+  };
+  const resolve = getResolve(facet?.column, facet?.row);
+
+  // Create the final spec for other chart types
   return {
-    ...getBaseSpec(data, formValues, theme, width, height, title),
+    ...baseSpec,
     mark: { type: convertChartTypeToMark(chartType) },
-    encoding: {
-      [xEncodingKey]: horizontal ? yEncoding : xEncoding,
-      [yEncodingKey]: horizontal ? xEncoding : yEncoding,
-      xOffset: getOffsetEncoding(chartType, formValues),
-      ...getColorEncoding(chartType, formValues),
-      tooltip: getTooltips(formValues),
-      row: rowFacet,
-      column: columnFacet,
-    },
-    resolve: {
-      axis: {
-        x: facet?.column.linkXAxis ? "shared" : "independent",
-        y: facet?.row.linkYAxis ? "shared" : "independent",
-      },
-    },
+    encoding: baseEncoding,
+    ...resolve,
+  };
+}
+
+export function augmentSpecWithData(
+  spec: TopLevelSpec,
+  data: object[],
+): TopLevelSpec {
+  return {
+    ...spec,
+    data: { values: data },
   };
 }
 
@@ -121,6 +163,7 @@ export function getAxisEncoding(
   label: string | undefined,
   stack: boolean | undefined,
   chartType: ChartType,
+  defaultAggregate?: ValidAggregationFn,
 ): PositionDef<string> {
   const selectedDataType = column.selectedDataType || "string";
 
@@ -128,7 +171,7 @@ export function getAxisEncoding(
     return {
       aggregate: "count",
       type: "quantitative",
-      bin: getBinEncoding(selectedDataType, binValues, chartType),
+      bin: getBinEncoding(chartType, selectedDataType, binValues),
       title: label === COUNT_FIELD ? undefined : label,
       stack: stack,
     };
@@ -137,42 +180,52 @@ export function getAxisEncoding(
   return {
     field: column.field,
     type: convertDataTypeToVega(column.selectedDataType || "unknown"),
-    bin: getBinEncoding(selectedDataType, binValues, chartType),
+    bin: getBinEncoding(chartType, selectedDataType, binValues),
     title: label,
     stack: stack,
-    aggregate: getAggregate(column.aggregate, selectedDataType),
+    aggregate: getAggregate(
+      column.aggregate,
+      selectedDataType,
+      defaultAggregate,
+    ),
+    sort: column.sort,
     timeUnit: getTimeUnit(column),
   };
 }
 
 export function getFacetEncoding(
   facet: z.infer<typeof RowFacet> | z.infer<typeof ColumnFacet>,
-): FacetFieldDef<Field, ExprRef | SignalRef> {
-  let binValues = undefined;
-  // Only allow binning for number data types
-  if (facet.binned && facet.selectedDataType === "number") {
-    binValues = {
+  chartType: ChartType,
+): FacetFieldDef<Field> {
+  const defaultBinValues = {
+    maxbins: DEFAULT_MAX_BINS_FACET,
+  };
+  const binValues = getBinEncoding(
+    chartType,
+    facet.selectedDataType || "string",
+    {
       maxbins: facet.maxbins,
-    };
-  }
+      binned: facet.binned,
+    },
+    defaultBinValues,
+  );
 
   return {
     field: facet.field,
     sort: facet.sort,
-    timeUnit: getTimeUnit(facet),
+    timeUnit: getFacetTimeUnit(facet),
     type: convertDataTypeToVega(facet.selectedDataType || "unknown"),
     bin: binValues,
   };
 }
 
 function getPieChartSpec(
-  data: object[],
-  formValues: z.infer<typeof ChartSchema>,
+  formValues: ChartSchemaType,
   theme: ResolvedTheme,
   width: number | "container",
   height: number,
-) {
-  const { yColumn, colorByColumn, title } = formValues.general;
+): TopLevelSpec | ErrorMessage {
+  const { yColumn, colorByColumn, title } = formValues.general ?? {};
 
   if (!isFieldSet(colorByColumn?.field)) {
     return "Color by column is required" as ErrorMessage;
@@ -198,7 +251,7 @@ function getPieChartSpec(
   };
 
   return {
-    ...getBaseSpec(data, formValues, theme, width, height, title),
+    ...getBaseSpec(ChartType.PIE, formValues, theme, width, height, title),
     mark: {
       type: convertChartTypeToMark(ChartType.PIE),
       innerRadius: formValues.style?.innerRadius,
@@ -206,26 +259,42 @@ function getPieChartSpec(
     encoding: {
       theta: thetaEncoding,
       color: colorEncoding,
-      tooltip: getTooltips(formValues),
+      tooltip: getTooltips({
+        formValues,
+        xEncoding: thetaEncoding,
+        yEncoding: thetaEncoding,
+        colorByEncoding: colorEncoding,
+      }),
     },
   };
 }
 
 function getBaseSpec(
-  data: object[],
-  formValues: z.infer<typeof ChartSchema>,
+  chartType: ChartType,
+  formValues: ChartSchemaType,
   theme: ResolvedTheme,
   width: number | "container",
   height: number,
   title?: string,
-) {
+): BaseSpec {
+  let gridLines = formValues.style?.gridLines ?? false;
+  // Scatter charts have grid lines by default
+  if (chartType === ChartType.SCATTER) {
+    gridLines = true;
+  }
+
   return {
     $schema: "https://vega.github.io/schema/vega-lite/v5.json",
     background: theme === "dark" ? "dark" : "white",
     title: title,
-    data: { values: data },
+    data: { values: [] },
     height: formValues.yAxis?.height ?? height,
     width: formValues.xAxis?.width ?? width,
+    config: {
+      axis: {
+        grid: gridLines,
+      },
+    },
   };
 }
 
@@ -241,7 +310,36 @@ function getFieldLabel(label?: string): string | undefined {
 
 function getTimeUnit(column: z.infer<typeof AxisSchema>) {
   if (column.selectedDataType === "temporal") {
-    return column.timeUnit;
+    return column.timeUnit ?? DEFAULT_TIME_UNIT;
   }
   return undefined;
+}
+
+function getFacetTimeUnit(
+  facet: z.infer<typeof RowFacet> | z.infer<typeof ColumnFacet>,
+) {
+  if (facet.selectedDataType === "temporal") {
+    return facet.timeUnit ?? DEFAULT_TIME_UNIT;
+  }
+  return undefined;
+}
+
+function getResolve(
+  columnFacet?: z.infer<typeof ColumnFacet>,
+  rowFacet?: z.infer<typeof RowFacet>,
+): { resolve: Resolve } | undefined {
+  const resolveAxis: Resolve["axis"] = {};
+
+  if (columnFacet?.linkXAxis === false) {
+    resolveAxis.x = "independent";
+  }
+
+  if (rowFacet?.linkYAxis === false) {
+    resolveAxis.y = "independent";
+  }
+
+  // If no independent axes, return undefined (shared)
+  return Object.keys(resolveAxis).length > 0
+    ? { resolve: { axis: resolveAxis } }
+    : undefined;
 }

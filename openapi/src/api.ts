@@ -161,6 +161,46 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/ai/invoke_tool": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      /** @description The request body for tool invocation */
+      requestBody: {
+        content: {
+          "application/json": components["schemas"]["InvokeAiToolRequest"];
+        };
+      };
+      responses: {
+        /** @description Tool invocation result */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["InvokeAiToolResponse"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/datasources/preview_column": {
     parameters: {
       query?: never;
@@ -1785,6 +1825,45 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/kernel/set_model_value": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: {
+        content: {
+          "application/json": components["schemas"]["SetModelMessageRequest"];
+        };
+      };
+      responses: {
+        /** @description Set model value */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["SuccessResponse"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/kernel/set_ui_element_value": {
     parameters: {
       query?: never;
@@ -1954,7 +2033,19 @@ export interface paths {
         cookie?: never;
       };
       requestBody?: never;
-      responses: never;
+      responses: {
+        /** @description Successfully closed existing sessions */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              status?: string;
+            };
+          };
+        };
+      };
     };
     delete?: never;
     options?: never;
@@ -2069,6 +2160,41 @@ export interface paths {
         };
       };
     };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/packages/tree": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description List dependency tree */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["DependencyTreeResponse"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
     delete?: never;
     options?: never;
     head?: never;
@@ -2423,6 +2549,7 @@ export interface components {
   schemas: {
     AddPackageRequest: {
       package: string;
+      upgrade?: boolean | null;
     };
     AiCompletionContext: {
       schema: components["schemas"]["SchemaTable"][];
@@ -2520,6 +2647,41 @@ export interface components {
         content: {
           [key: string]: unknown;
         };
+        parts?:
+          | (
+              | {
+                  text: string;
+                  /** @enum {string} */
+                  type: "text";
+                }
+              | {
+                  details: {
+                    signature?: string | null;
+                    text: string;
+                    /** @enum {string} */
+                    type: "text";
+                  }[];
+                  reasoning: string;
+                  /** @enum {string} */
+                  type: "reasoning";
+                }
+              | {
+                  toolInvocation: {
+                    args: {
+                      [key: string]: unknown;
+                    };
+                    result: unknown;
+                    /** @enum {string} */
+                    state: "result";
+                    step: number;
+                    toolCallId: string;
+                    toolName: string;
+                  };
+                  /** @enum {string} */
+                  type: "tool-invocation";
+                }
+            )[]
+          | null;
         /** @enum {string} */
         role: "user" | "assistant" | "system";
       }[];
@@ -2531,7 +2693,7 @@ export interface components {
       document: string;
       id: string;
     };
-    ColumnSummary: {
+    ColumnStats: {
       false?: number | null;
       max?: components["schemas"]["NonNestedLiteral"];
       mean?: components["schemas"]["NonNestedLiteral"];
@@ -2580,14 +2742,13 @@ export interface components {
     };
     DataColumnPreview: {
       chart_code?: string | null;
-      chart_max_rows_errors: boolean;
       chart_spec?: string | null;
       column_name: string;
       error?: string | null;
       missing_packages?: string[] | null;
       /** @enum {string} */
       name: "data-column-preview";
-      summary?: components["schemas"]["ColumnSummary"];
+      stats?: components["schemas"]["ColumnStats"];
       table_name: string;
     };
     DataSourceConnection: {
@@ -2667,6 +2828,17 @@ export interface components {
     };
     DeleteSecretRequest: {
       key: string;
+    };
+    DependencyTreeNode: {
+      dependencies: components["schemas"]["DependencyTreeNode"][];
+      name: string;
+      tags: {
+        [key: string]: string;
+      }[];
+      version?: string | null;
+    };
+    DependencyTreeResponse: {
+      tree?: components["schemas"]["DependencyTreeNode"];
     };
     Error:
       | components["schemas"]["SetupRootError"]
@@ -2859,6 +3031,18 @@ export interface components {
       /** @enum {string} */
       name: "interrupted";
     };
+    InvokeAiToolRequest: {
+      arguments: {
+        [key: string]: unknown;
+      };
+      toolName: string;
+    };
+    InvokeAiToolResponse: {
+      error?: string | null;
+      result: unknown;
+      success: boolean;
+      toolName: string;
+    };
     JSONType:
       | string
       | number
@@ -2869,7 +3053,7 @@ export interface components {
     KernelReady: {
       app_config: {
         app_title?: string | null;
-        auto_download: ("html" | "markdown")[];
+        auto_download: ("html" | "markdown" | "ipynb")[];
         css_file?: string | null;
         html_head_file?: string | null;
         layout_file?: string | null;
@@ -2977,10 +3161,18 @@ export interface components {
         anthropic?: {
           api_key?: string;
         };
+        bedrock?: {
+          aws_access_key_id?: string;
+          aws_secret_access_key?: string;
+          profile_name?: string;
+          region_name?: string;
+        };
         google?: {
           api_key?: string;
         };
         max_tokens?: number;
+        /** @enum {string} */
+        mode?: "ask" | "manual";
         open_ai?: {
           api_key?: string;
           base_url?: string;
@@ -3017,6 +3209,7 @@ export interface components {
         default_table_page_size: number;
         /** @enum {string} */
         default_width: "normal" | "compact" | "medium" | "full" | "columns";
+        reference_highlighting?: boolean;
         /** @enum {string} */
         theme: "light" | "dark" | "system";
       };
@@ -3079,6 +3272,10 @@ export interface components {
       server: {
         browser: "default" | string;
         follow_symlink: boolean;
+      };
+      sharing?: {
+        html?: boolean;
+        wasm?: boolean;
       };
       snippets?: {
         custom_paths?: string[];
@@ -3360,9 +3557,10 @@ export interface components {
       message: {
         [key: string]: unknown;
       };
+      model_id?: string | null;
       /** @enum {string} */
       name: "send-ui-element-message";
-      ui_element: string;
+      ui_element?: string | null;
     };
     SetCellConfigRequest: {
       configs: {
@@ -3370,6 +3568,16 @@ export interface components {
           [key: string]: unknown;
         };
       };
+    };
+    SetModelMessageRequest: {
+      buffers?: string[] | null;
+      message: {
+        bufferPaths: (string | number)[][];
+        state: {
+          [key: string]: unknown;
+        };
+      };
+      modelId: string;
     };
     SetUIElementValueRequest: {
       objectIds: string[];
