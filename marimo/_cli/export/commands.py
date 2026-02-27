@@ -550,6 +550,30 @@ Requires nbformat and nbconvert to be installed.
     ),
 )
 @click.option(
+    "--rasterize-outputs/--no-rasterize-outputs",
+    default=True,
+    type=bool,
+    help=(
+        "Rasterize marimo widget HTML and Vega outputs to PNG fallbacks before PDF "
+        "conversion (enabled by default)."
+    ),
+)
+@click.option(
+    "--raster-scale",
+    type=click.FloatRange(min=1.0, max=4.0),
+    default=4.0,
+    help="Scale factor for rasterized output screenshots.",
+)
+@click.option(
+    "--raster-server",
+    type=click.Choice(["static", "live"], case_sensitive=False),
+    default="static",
+    help=(
+        "Server mode used for raster capture. Use 'static' (default) for "
+        "faster captures, or 'live' if outputs require a live Python connection."
+    ),
+)
+@click.option(
     "--watch/--no-watch",
     default=False,
     type=bool,
@@ -582,19 +606,37 @@ Requires nbformat and nbconvert to be installed.
     type=click.Path(exists=True, file_okay=True, dir_okay=False),
 )
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
+@click.pass_context
 def pdf(
+    ctx: click.Context,
     name: str,
     output: Path,
     watch: bool,
     include_outputs: bool,
     include_inputs: bool,
     webpdf: bool,
+    rasterize_outputs: bool,
+    raster_scale: float,
+    raster_server: str,
     sandbox: Optional[bool],
     force: bool,
     args: tuple[str],
 ) -> None:
     """Run a notebook and export it as a PDF file."""
     import sys
+
+    if not include_outputs:
+        rasterize_source = ctx.get_parameter_source("rasterize_outputs")
+        raster_scale_source = ctx.get_parameter_source("raster_scale")
+        raster_server_source = ctx.get_parameter_source("raster_server")
+        if (
+            rasterize_source is not click.core.ParameterSource.DEFAULT
+            or raster_scale_source is not click.core.ParameterSource.DEFAULT
+            or raster_server_source is not click.core.ParameterSource.DEFAULT
+        ):
+            raise click.ClickException(
+                "Rasterization options require --include-outputs."
+            )
 
     if include_outputs:
         # Set default, if not provided
@@ -635,6 +677,28 @@ def pdf(
         ) from None
 
     cli_args = parse_args(args) if include_outputs else {}
+    rasterization_enabled = include_outputs and rasterize_outputs
+    if rasterization_enabled:
+        try:
+            DependencyManager.playwright.require(
+                "for rasterized PDF output export"
+            )
+        except ModuleNotFoundError as e:
+            if getattr(e, "name", None) == "playwright":
+                raise MarimoCLIMissingDependencyError(
+                    "Playwright is required to rasterize HTML outputs for PDF export.",
+                    "playwright",
+                    followup_commands=get_playwright_chromium_setup_commands(),
+                ) from None
+            raise
+
+    from marimo._server.export._pdf_raster import PDFRasterizationOptions
+
+    rasterization_options = PDFRasterizationOptions(
+        enabled=rasterization_enabled,
+        scale=raster_scale,
+        server_mode=raster_server,
+    )
 
     def export_callback(
         file_path: MarimoPath,
@@ -648,6 +712,7 @@ def pdf(
                     webpdf=webpdf,
                     cli_args=cli_args,
                     argv=list(args) if include_outputs else None,
+                    rasterization_options=rasterization_options,
                 )
             )
         except ModuleNotFoundError as e:

@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 import click
 import pytest
 
+from marimo._cli.export.commands import pdf
 from marimo._dependencies.dependencies import DependencyManager
 from marimo._utils import async_path
 from marimo._utils.platform import is_windows
@@ -843,6 +844,22 @@ class TestExportIpynb:
 
 
 class TestExportPDF:
+    @staticmethod
+    def test_export_pdf_rasterize_outputs_default_enabled() -> None:
+        rasterize_option = next(
+            param for param in pdf.params if param.name == "rasterize_outputs"
+        )
+        assert isinstance(rasterize_option, click.Option)
+        assert rasterize_option.default is True
+
+    @staticmethod
+    def test_export_pdf_raster_server_default_static() -> None:
+        raster_server_option = next(
+            param for param in pdf.params if param.name == "raster_server"
+        )
+        assert isinstance(raster_server_option, click.Option)
+        assert raster_server_option.default == "static"
+
     @pytest.mark.skipif(
         DependencyManager.nbformat.has() and DependencyManager.nbconvert.has(),
         reason="This test expects PDF export deps to be missing.",
@@ -863,6 +880,62 @@ class TestExportPDF:
         stderr = p.stderr.decode()
         assert "nbconvert" in stderr
         assert "pip install" in stderr
+
+    @staticmethod
+    def test_export_pdf_rasterize_requires_outputs(
+        temp_marimo_file: str,
+    ) -> None:
+        output_file = temp_marimo_file.replace(".py", ".pdf")
+        p = _run_export(
+            "pdf",
+            temp_marimo_file,
+            "--output",
+            output_file,
+            "--no-include-outputs",
+            "--rasterize-outputs",
+            "--no-sandbox",
+        )
+        _assert_failure(p)
+        stderr = p.stderr.decode()
+        assert "Rasterization options require --include-outputs." in stderr
+
+    @staticmethod
+    def test_export_pdf_raster_scale_requires_outputs(
+        temp_marimo_file: str,
+    ) -> None:
+        output_file = temp_marimo_file.replace(".py", ".pdf")
+        p = _run_export(
+            "pdf",
+            temp_marimo_file,
+            "--output",
+            output_file,
+            "--no-include-outputs",
+            "--raster-scale",
+            "2",
+            "--no-sandbox",
+        )
+        _assert_failure(p)
+        stderr = p.stderr.decode()
+        assert "Rasterization options require --include-outputs." in stderr
+
+    @staticmethod
+    def test_export_pdf_raster_server_requires_outputs(
+        temp_marimo_file: str,
+    ) -> None:
+        output_file = temp_marimo_file.replace(".py", ".pdf")
+        p = _run_export(
+            "pdf",
+            temp_marimo_file,
+            "--output",
+            output_file,
+            "--no-include-outputs",
+            "--raster-server",
+            "live",
+            "--no-sandbox",
+        )
+        _assert_failure(p)
+        stderr = p.stderr.decode()
+        assert "Rasterization options require --include-outputs." in stderr
 
 
 @pytest.mark.skipif(
