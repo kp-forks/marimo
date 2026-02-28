@@ -26,6 +26,7 @@ class StorageEntry(msgspec.Struct, rename="camel"):
         size: The size of the storage entry.
         last_modified: The last modified time of the storage entry.
         metadata: The metadata of the storage entry.
+        mime_type: The MIME type of the storage entry, or None for directories.
     """
 
     path: str
@@ -33,6 +34,7 @@ class StorageEntry(msgspec.Struct, rename="camel"):
     size: int
     last_modified: float | None
     metadata: dict[str, Any] = msgspec.field(default_factory=dict)
+    mime_type: str | None = None
 
 
 class StorageNamespace(msgspec.Struct, rename="camel"):
@@ -98,6 +100,12 @@ class StorageBackend(abc.ABC, Generic[Backend]):
     @abc.abstractmethod
     async def download(self, path: str) -> bytes:
         """Download the file at the given path."""
+
+    @abc.abstractmethod
+    async def read_range(
+        self, path: str, *, offset: int = 0, length: int | None = None
+    ) -> bytes:
+        """Read a byte range from the file. If length is None, read the entire file."""
 
     @abc.abstractmethod
     async def sign_download_url(
