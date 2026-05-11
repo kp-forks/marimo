@@ -37,7 +37,7 @@ import type { IConnectionTransport } from "../websocket/transports/transport";
 import { PyodideRouter } from "./router";
 import { getWorkerRPC } from "./rpc";
 import { createShareableLink } from "./share";
-import { wasmInitializationAtom } from "./state";
+import { wasmInitializationAtom, wasmInitStatusAtom } from "./state";
 import { fallbackFileStore, notebookFileStore } from "./store";
 import { isWasm } from "./utils";
 import type { SaveWorkerSchema } from "./worker/save-worker";
@@ -119,13 +119,15 @@ export class PyodideBridge implements RunRequests, EditRequests {
       // By initializing after, we get hits on cached network requests
       this.saveRpc = this.getSaveWorker();
       this.setInterruptBuffer();
+      store.set(wasmInitStatusAtom, "ready");
       this.initialized.resolve();
     });
     this.rpc.addMessageListener("initializingMessage", ({ message }) => {
       store.set(wasmInitializationAtom, message);
     });
     this.rpc.addMessageListener("initializedError", ({ error }) => {
-      // If already resolved, show a toast
+      // If already initialized, surface as a toast and leave the deferred /
+      // init status alone — the worker is healthy, this is a runtime error.
       if (this.initialized.status === "resolved") {
         Logger.error(error);
         toast({
@@ -133,7 +135,9 @@ export class PyodideBridge implements RunRequests, EditRequests {
           description: error,
           variant: "danger",
         });
+        return;
       }
+      store.set(wasmInitStatusAtom, "error");
       this.initialized.reject(new Error(error));
     });
     this.rpc.addMessageListener("kernelMessage", ({ message }) => {
